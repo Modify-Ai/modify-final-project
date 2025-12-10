@@ -116,4 +116,4 @@ modify-final-project/
 │   ├── src/
 │   │   ├── pages/      # 페이지 컴포넌트
 │   │   └── components/ # 재사용 컴포넌트 (ProductCard 등)
-└── docker-compose.dev.yml # 실행 설정 파일
+└── docker-compose.dev.yml # 실행 설정 파일 ,
