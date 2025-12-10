@@ -3,7 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { 
   Search as SearchIcon, Mic, X, Sparkles, TrendingUp, 
   Image as ImageIcon, ShoppingBag, AlertCircle, RefreshCw, 
-  ArrowUp, ArrowLeft
+  ArrowUp, ArrowLeft, Check
 } from 'lucide-react';
 import client from '../api/client';
 import ProductCard from '../components/product/ProductCard';
@@ -114,7 +114,7 @@ export default function Search() {
         return `${url}${separator}t=${timestamp}`;
     };
 
-    // [핵심] 검색 로직
+    // [핵심] 검색 로직 (에러 핸들링 강화됨)
     const handleSearch = useCallback(async (currentQuery: string, currentImage: File | null, isVoice: boolean = false) => {
         if (!currentQuery && !currentImage) return;
         if (currentQuery) addRecentSearch(currentQuery);
@@ -138,8 +138,11 @@ export default function Search() {
             });
 
             const data = response.data;
+            console.log("✅ Search Response:", data); // 디버깅용
+
             setResults(data.products || []);
             
+            // RAG 분석 결과가 있고, 참고 이미지가 유효할 때만 분석 화면 표시
             if (data.ai_analysis && data.ai_analysis.reference_image) {
                 setAiAnalysis(data.ai_analysis);
                 setSelectedImage(data.ai_analysis.reference_image);
@@ -147,11 +150,14 @@ export default function Search() {
                 
                 if (isVoice) speak(data.ai_analysis.summary);
             } else {
+                // 분석 결과가 없으면 바로 상품 목록(혹은 결과 없음) 표시
                 setShowProducts(true);
             }
 
         } catch (error: any) {
-            console.error("Search failed:", error);
+            console.error("❌ Search failed:", error);
+            // [FIX] 에러가 나도 '결과 없음' 화면을 보여주기 위해 showProducts를 켠다
+            setShowProducts(true); 
         } finally {
             setIsLoading(false);
         }

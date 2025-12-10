@@ -6,17 +6,31 @@ from typing import List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID")
-SEARCH_URL = "https://www.googleapis.com/customsearch/v1"
-
 class GoogleSearchClient:
     def __init__(self):
-        masked_key = GOOGLE_API_KEY[:5] + "..." if GOOGLE_API_KEY else "None"
-        logger.info(f"🔑 Google Client Init - Key: {masked_key}")
-        self.is_ready = bool(GOOGLE_API_KEY and GOOGLE_CSE_ID)
+        # 1. 환경변수 로드 (호환성 강화: 가능한 모든 변수명 확인)
+        self.api_key = os.getenv("GOOGLE_SEARCH_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        
+        # [FIX] GOOGLE_SEARCH_ENGINE_ID 추가
+        self.cx = (
+            os.getenv("GOOGLE_SEARCH_CX") or 
+            os.getenv("GOOGLE_CSE_ID") or 
+            os.getenv("GOOGLE_SEARCH_ENGINE_ID")
+        )
+        
+        # 공백 제거 (안전장치)
+        if self.api_key: self.api_key = self.api_key.strip()
+        if self.cx: self.cx = self.cx.strip()
+        
+        # 키 가리기 (보안 로그)
+        masked_key = f"{self.api_key[:5]}..." if self.api_key else "None"
+        masked_cx = f"{self.cx[:5]}..." if self.cx else "None"
+        
+        logger.info(f"🔑 Google Client Init - Key: {masked_key}, CX: {masked_cx}")
+        self.is_ready = bool(self.api_key and self.cx)
+        self.search_url = "https://www.googleapis.com/customsearch/v1"
 
-    # [수정] 유연한 필터링 로직 (조사 제거 및 안전망)
+    # [기능 유지] 유연한 필터링 로직 (조사 제거 및 안전망)
     def _filter_irrelevant_results(self, items: List[Dict[str, Any]], query: str) -> List[Dict[str, Any]]:
         if not items or not query: return items
 
@@ -64,17 +78,33 @@ class GoogleSearchClient:
         return filtered_items
 
     async def _execute_search(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
-        if not self.is_ready: return []
+        if not self.is_ready: 
+            logger.error("❌ Google Search Credentials missing in .env")
+            return []
+
+        # API 키 주입
+        params['key'] = self.api_key
+        params['cx'] = self.cx
 
         async with httpx.AsyncClient(timeout=15.0) as client:
             try:
+                # 로그용 파라미터 (키 숨김)
                 safe_params = params.copy()
                 safe_params['key'] = 'HIDDEN'
+                safe_params['cx'] = 'HIDDEN'
                 logger.info(f"📤 Google Request: {safe_params}")
 
-                response = await client.get(SEARCH_URL, params=params)
+                response = await client.get(self.search_url, params=params)
+                
+                # [상세 에러 로깅]
                 if response.status_code != 200:
-                    logger.error(f"❌ Google API Error: {response.status_code}")
+                    error_text = response.text
+                    if response.status_code == 403:
+                        logger.error(f"❌ Google API 403 Forbidden: 키가 틀렸거나 CX ID가 잘못되었습니다. 응답: {error_text}")
+                    elif response.status_code == 429:
+                        logger.error(f"❌ Google API 429 Quota Exceeded: 하루 무료 사용량(100회)을 초과했습니다.")
+                    else:
+                        logger.error(f"❌ Google API Error ({response.status_code}): {error_text}")
                     return []
 
                 data = response.json()
@@ -95,12 +125,13 @@ class GoogleSearchClient:
                 return results
 
             except Exception as e:
-                logger.error(f"❌ Google Search Failed: {e}")
+                logger.error(f"❌ Google Search Connection Failed: {e}")
                 return []
 
     async def search(self, query: str, num_results: int = 5) -> List[Dict[str, Any]]:
         params = {
-            "key": GOOGLE_API_KEY, "cx": GOOGLE_CSE_ID, "q": query, "num": num_results
+            "q": query, 
+            "num": num_results
         }
         return await self._execute_search(params)
 
@@ -113,15 +144,15 @@ class GoogleSearchClient:
         request_num = min(num_results * 3, 10) 
 
         params = {
-            "key": GOOGLE_API_KEY,
-            "cx": GOOGLE_CSE_ID,
             "q": final_query,
             "searchType": "image",
             "num": request_num, 
             "start": start_index,            
             "imgType": "photo",
             "imgSize": "large",
-            "safe": "off"
+            "safe": "off",
+            "gl": "kr",
+            "hl": "ko"
         }
         
         results = await self._execute_search(params)
