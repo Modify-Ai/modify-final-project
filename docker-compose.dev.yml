@@ -65,7 +65,7 @@ services:
     networks:
       - modify-network
 
-  # 4. Backend Worker
+  # 4. Backend Worker (Celery)
   celery-worker:
     build:
       context: ./backend-core
@@ -84,9 +84,9 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - modify-network     
+      - modify-network    
       
-  # 5. AI Service API (수정됨)
+  # 5. AI Service API (경로 수정됨 🚨)
   ai-service-api: 
     build:
       context: ./ai-service
@@ -97,46 +97,43 @@ services:
     ports:
       - "8005:8000"
     
-    # ✅ [1] 파일에서 변수를 읽어오도록 설정 (이것만 있으면 됩니다!)
+    # [FIX] 프로젝트 루트의 .env.dev 참조
     env_file:
       - .env.dev
       
-    # ✅ [2] environment 섹션에서 WATSONX 관련 내용 삭제
-    # (이미 env_file에서 읽었는데, 여기서 ${}로 다시 부르면 빈 값으로 덮어써집니다)
     environment:
       - WATCHFILES_FORCE_POLLING=true
       - EMBEDDING_DEVICE=cpu
-      # ❌ 삭제함: - WATSONX_API_KEY=${WATSONX_API_KEY} 
-      # ❌ 삭제함: - WATSONX_PROJECT_ID=${WATSONX_PROJECT_ID}
-      # ❌ 삭제함: - WATSONX_URL=${WATSONX_URL}
 
     volumes:
       - ./ai-service:/app 
       - model_cache:/app/models_cache
+      # [FIX] 프로젝트 루트의 .env.dev 마운트
+      - ./.env.dev:/app/.env.dev
     networks:
       - modify-network
 
-  # 6. AI Worker (수정됨)
+  # 6. AI Worker (경로 수정됨 🚨)
   ai-service-worker: 
     build:
       context: ./ai-service
       dockerfile: Dockerfile
     container_name: modify-ai-worker
     restart: always
-    command: celery -A src.worker.celery_app worker --loglevel=info --concurrency=2
+    command: /opt/venv/bin/celery -A src.worker.celery_app worker --loglevel=info --concurrency=2
     
-    # ✅ [1] 워커도 똑같이 파일만 의존
+    # [FIX] 프로젝트 루트의 .env.dev 참조
     env_file:
       - .env.dev
       
-    # ✅ [2] 여기서도 WATSONX 관련 변수 삭제 (덮어쓰기 방지)
     environment:
       - EMBEDDING_DEVICE=cpu
-      # ❌ 삭제함: WATSONX 관련 변수들...
 
     volumes:
       - ./ai-service:/app 
       - model_cache:/app/models_cache
+      # [FIX] 프로젝트 루트의 .env.dev 마운트
+      - ./.env.dev:/app/.env.dev
     depends_on:
       redis:
         condition: service_healthy
@@ -144,8 +141,6 @@ services:
         condition: service_started
     networks:
       - modify-network
-
-  
 
   # 7. Frontend
   frontend:

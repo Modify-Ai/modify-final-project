@@ -79,6 +79,9 @@ export default function Search() {
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const [currentText, setCurrentText] = useState<string>("");
     
+    // 원본 검색어 저장 (CLIP 검색 시 성별 필터용)
+    const [originalQuery, setOriginalQuery] = useState<string>("");
+    
     // UI 상태
     const [isAnalyzingImage, setIsAnalyzingImage] = useState(false);
     const [isSearchingProducts, setIsSearchingProducts] = useState(false);
@@ -90,6 +93,9 @@ export default function Search() {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const productSectionRef = useRef<HTMLDivElement>(null);
     const { speak } = useTTS();
+
+    // ✅ 백엔드 API URL (이미지 로딩용)
+    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
     useEffect(() => {
         if (isLoading) {
@@ -107,18 +113,51 @@ export default function Search() {
         if (file && file.type.startsWith('image/')) setImageFile(file);
     };
 
+    // ✅ 이미지 URL 변환 + 캐시 버스팅
     const getBustedImage = (url: string) => {
-        if (!url) return '';
+        if (!url) return 'https://placehold.co/400x500/e2e8f0/64748b?text=No+Image';
         if (url.startsWith('data:')) return url;
-        const separator = url.includes('?') ? '&' : '?';
-        return `${url}${separator}t=${timestamp}`;
+        if (url.startsWith('http://') || url.startsWith('https://')) {
+            const separator = url.includes('?') ? '&' : '?';
+            return `${url}${separator}t=${timestamp}`;
+        }
+        // /static/images/... 형식 → 백엔드 URL 붙이기
+        if (url.startsWith('/static/')) {
+            // Nginx(80)를 통해 접근하므로 API_BASE_URL 필요 없음 (상대 경로 가능)
+            // 하지만 안전하게 절대 경로 사용
+            return `${API_BASE_URL}${url}?t=${timestamp}`;
+        }
+        return `${API_BASE_URL}/${url}?t=${timestamp}`;
     };
 
-    // [핵심] 검색 로직 (에러 핸들링 강화됨)
+    // ✅ 이미지 기반 상품 검색 (쿼리 직접 전달 방식)
+    const searchProductsByImage = useCallback(async (imageBase64: string, targetQuery: string, target: string = "full") => {
+        setIsSearchingProducts(true);
+        try {
+            const clipResponse = await client.post('/search/search-by-clip', {
+                image_b64: imageBase64,
+                limit: 12,
+                query: targetQuery, // ✅ 상태값이 아닌 인자값 사용
+                target: target
+            });
+            
+            if (clipResponse.data && clipResponse.data.products) {
+                setResults(clipResponse.data.products);
+                setTimestamp(Date.now());
+            }
+        } catch (error) {
+            console.error("Image-based search failed:", error);
+        } finally {
+            setIsSearchingProducts(false);
+        }
+    }, []);
+
+    // [핵심] 검색 로직
     const handleSearch = useCallback(async (currentQuery: string, currentImage: File | null, isVoice: boolean = false) => {
         if (!currentQuery && !currentImage) return;
+        
+        // 초기화
         if (currentQuery) addRecentSearch(currentQuery);
-
         setIsLoading(true);
         setResults([]);
         setAiAnalysis(null);
@@ -126,6 +165,9 @@ export default function Search() {
         setCurrentText("");
         setShowProducts(false);
         setTimestamp(Date.now());
+        
+        // ✅ 원본 검색어 상태 업데이트 (UI용)
+        setOriginalQuery(currentQuery);
 
         const formData = new FormData();
         formData.append('query', currentQuery);
@@ -138,11 +180,8 @@ export default function Search() {
             });
 
             const data = response.data;
-            console.log("✅ Search Response:", data); // 디버깅용
-
             setResults(data.products || []);
             
-            // RAG 분석 결과가 있고, 참고 이미지가 유효할 때만 분석 화면 표시
             if (data.ai_analysis && data.ai_analysis.reference_image) {
                 setAiAnalysis(data.ai_analysis);
                 setSelectedImage(data.ai_analysis.reference_image);
@@ -150,72 +189,24 @@ export default function Search() {
                 
                 if (isVoice) speak(data.ai_analysis.summary);
             } else {
-                // 분석 결과가 없으면 바로 상품 목록(혹은 결과 없음) 표시
                 setShowProducts(true);
             }
 
         } catch (error: any) {
-            console.error("❌ Search failed:", error);
-            // [FIX] 에러가 나도 '결과 없음' 화면을 보여주기 위해 showProducts를 켠다
-            setShowProducts(true); 
+            console.error("Search failed:", error);
+            setShowProducts(true); // 에러 나도 빈 결과창 보여줌
         } finally {
             setIsLoading(false);
         }
     }, [speak, addRecentSearch]);
 
-    // 음성 검색 로직
-    const handleVoiceSearch = () => {
-        if (!('webkitSpeechRecognition' in window)) {
-            alert('Chrome 브라우저를 사용해주세요.');
-            return;
-        }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const recognition = new (window as any).webkitSpeechRecognition();
-        recognition.lang = 'ko-KR';
-        recognition.onstart = () => speak("듣고 있습니다.");
-        recognition.onresult = (event: any) => {
-            const transcript = event.results[0][0].transcript;
-            setQuery(transcript);
-            handleSearch(transcript, imageFile, true); 
-        };
-        recognition.start();
-    };
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        handleSearch(query, imageFile, false);
-    };
-
     // 후보 이미지 선택 시 상품 재검색
     const handleSelectCandidateImage = async (imageBase64: string) => {
         setSelectedImage(imageBase64);
         
-        // 상품이 이미 표시된 상태라면 해당 이미지로 재검색
         if (showProducts) {
-            await searchProductsByImage(imageBase64);
-        }
-    };
-
-    // 이미지 기반 상품 검색
-    const searchProductsByImage = async (imageBase64: string) => {
-        setIsSearchingProducts(true);
-        
-        try {
-            // 1. AI 서비스에서 CLIP 벡터 생성
-            const clipResponse = await client.post('/search/search-by-clip', {
-                image_b64: imageBase64,
-                limit: 12
-            });
-            
-            if (clipResponse.data && clipResponse.data.products) {
-                setResults(clipResponse.data.products);
-                setTimestamp(Date.now());
-            }
-        } catch (error) {
-            console.error("Image-based search failed:", error);
-            // 실패 시 기존 결과 유지
-        } finally {
-            setIsSearchingProducts(false);
+            // ✅ originalQuery 상태값 사용
+            await searchProductsByImage(imageBase64, originalQuery, "full");
         }
     };
 
@@ -236,22 +227,54 @@ export default function Search() {
         }
     };
 
-    // 상품 보기 핸들러 - 선택된 이미지로 검색
+    // ✅ 상품 보기 핸들러들 (Perfect 기능 복구)
     const handleShowProducts = async () => {
         setShowProducts(true);
-        
-        // 선택된 이미지가 있으면 해당 이미지로 상품 검색
         if (selectedImage) {
-            await searchProductsByImage(selectedImage);
+            await searchProductsByImage(selectedImage, originalQuery, "full");
         }
-        
-        setTimeout(() => {
-            productSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
-        }, 100);
+        setTimeout(() => productSectionRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    };
+
+    const handleShowUpperOnly = async () => {
+        setShowProducts(true);
+        if (selectedImage) {
+            await searchProductsByImage(selectedImage, originalQuery, "upper");
+        }
+        setTimeout(() => productSectionRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    };
+
+    const handleShowLowerOnly = async () => {
+        setShowProducts(true);
+        if (selectedImage) {
+            await searchProductsByImage(selectedImage, originalQuery, "lower");
+        }
+        setTimeout(() => productSectionRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     };
 
     const handleScrollTop = () => {
         window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const handleVoiceSearch = () => {
+        if (!('webkitSpeechRecognition' in window)) {
+            alert('Chrome 브라우저를 사용해주세요.');
+            return;
+        }
+        const recognition = new (window as any).webkitSpeechRecognition();
+        recognition.lang = 'ko-KR';
+        recognition.onstart = () => speak("듣고 있습니다.");
+        recognition.onresult = (event: any) => {
+            const transcript = event.results[0][0].transcript;
+            setQuery(transcript);
+            handleSearch(transcript, imageFile, true); 
+        };
+        recognition.start();
+    };
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        handleSearch(query, imageFile, false);
     };
 
     const previewUrl = imageFile ? URL.createObjectURL(imageFile) : null;
@@ -264,7 +287,7 @@ export default function Search() {
     }, [queryTextFromUrl, handleSearch]);
 
     return (
-        // 🌑 [FIX] 전체 배경 및 텍스트 색상 (다크모드)
+        // 🌑 [Dark Mode] 전체 배경
         <div className="max-w-7xl mx-auto p-6 space-y-8 pb-40 min-h-screen bg-white dark:bg-black text-gray-900 dark:text-white transition-colors duration-300">
             {/* 헤더 & 검색바 */}
             <div className="flex items-center gap-4">
@@ -279,7 +302,6 @@ export default function Search() {
                 </h1>
             </div>
 
-            {/* 🌑 [FIX] 검색 폼 배경 */}
             <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-900 rounded-xl shadow-lg p-6 border border-gray-100 dark:border-gray-800 transition-shadow hover:shadow-xl">
                 <div className="flex items-center space-x-3 mb-4">
                     <SearchIcon className="w-6 h-6 text-gray-400" />
@@ -330,7 +352,6 @@ export default function Search() {
 
             {/* [1단계] Visual RAG 리포트 */}
             {!isLoading && aiAnalysis && (
-                // 🌑 [FIX] 리포트 박스 배경
                 <div className="mb-12 bg-white dark:bg-gray-900 rounded-2xl p-6 border border-gray-100 dark:border-gray-800 shadow-sm animate-in zoom-in-95 duration-500 overflow-hidden">
                     <div className="flex flex-col md:flex-row gap-8 items-start">
                         {/* 이미지 & 후보군 */}
@@ -381,7 +402,6 @@ export default function Search() {
 
                         {/* 텍스트 & 액션 버튼 */}
                         <div className="flex-1 py-2 space-y-6 min-w-0">
-                            {/* 🌑 [FIX] 분석 리포트 텍스트 박스 */}
                             <div className="bg-purple-50/50 dark:bg-purple-900/10 rounded-2xl p-6 md:p-8 border border-purple-100 dark:border-purple-900/30 relative shadow-sm min-h-[300px] overflow-hidden">
                                 <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                                     <div className="flex items-center gap-2">
@@ -389,7 +409,6 @@ export default function Search() {
                                         <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">스타일 분석 리포트</h2>
                                     </div>
                                     
-                                    {/* 개별 분석 버튼 */}
                                     {selectedImage && selectedImage !== aiAnalysis.reference_image && (
                                         <button 
                                             onClick={handleAnalyzeSelectedImage}
@@ -416,7 +435,6 @@ export default function Search() {
                                 )}
                             </div>
 
-                            {/* 액션 버튼 영역 */}
                             <div className="space-y-4 animate-in slide-in-from-bottom-4 fade-in">
                                 <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-tr-2xl rounded-br-2xl rounded-bl-2xl p-4 shadow-sm inline-block relative max-w-full">
                                     <p className="text-gray-800 dark:text-gray-200 font-medium">
@@ -432,20 +450,24 @@ export default function Search() {
                                         className="px-6 py-3 bg-indigo-600 text-white rounded-full font-bold hover:bg-indigo-700 transition-all flex items-center gap-2 shadow-md hover:shadow-lg active:scale-95 disabled:opacity-50"
                                     >
                                         {isSearchingProducts ? (
-                                            <>
-                                                <RefreshCw className="w-5 h-5 animate-spin" /> 검색 중...
-                                            </>
+                                            <><RefreshCw className="w-5 h-5 animate-spin" /> 검색 중...</>
                                         ) : (
-                                            <>
-                                                <Check className="w-5 h-5" /> 네, 전체 코디 보여줘
-                                            </>
+                                            <><Check className="w-5 h-5" /> 네, 전체 코디 보여줘</>
                                         )}
                                     </button>
-                                    <button className="px-5 py-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 rounded-full font-medium hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-gray-300 transition-all">
-                                        상의만
+                                    <button 
+                                        onClick={handleShowUpperOnly}
+                                        disabled={isSearchingProducts}
+                                        className="px-5 py-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 rounded-full font-medium hover:bg-purple-50 dark:hover:bg-gray-700 hover:border-purple-300 transition-all disabled:opacity-50"
+                                    >
+                                        👕 상의만
                                     </button>
-                                    <button className="px-5 py-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 rounded-full font-medium hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-gray-300 transition-all">
-                                        하의만
+                                    <button 
+                                        onClick={handleShowLowerOnly}
+                                        disabled={isSearchingProducts}
+                                        className="px-5 py-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 rounded-full font-medium hover:bg-purple-50 dark:hover:bg-gray-700 hover:border-purple-300 transition-all disabled:opacity-50"
+                                    >
+                                        👖 하의만
                                     </button>
                                 </div>
                             </div>
@@ -470,7 +492,6 @@ export default function Search() {
                         </button>
                       </div>
 
-                      {/* 🌑 [FIX] 상품 리스트 컨테이너 배경 */}
                       <div className="bg-gray-50 dark:bg-gray-900/50 rounded-3xl p-8 border border-gray-100 dark:border-gray-800">
                         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
                             {results.map((product) => (
@@ -500,7 +521,6 @@ export default function Search() {
                 </div>
             )}
 
-            {/* 커스텀 CSS for overflow-wrap */}
             <style>{`
                 .overflow-wrap-anywhere {
                     overflow-wrap: anywhere;

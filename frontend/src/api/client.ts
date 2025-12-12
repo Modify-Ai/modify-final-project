@@ -1,12 +1,17 @@
-import axios, { AxiosInstance, AxiosError } from 'axios';
+import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from '../store/authStore'; 
 
-// 🚨 환경 변수 또는 하드코딩된 주소 사용
-// 배포 환경에서는 import.meta.env.VITE_API_URL 등을 사용하세요.
-const API_ROOT = 'http://localhost:8000'; 
+// 🚨 [FIX] 포트 번호 8000 제거 -> Nginx(80)를 바라보게 수정
+// 이렇게 해야 브라우저가 "같은 도메인"으로 인식하거나, Nginx가 CORS를 처리해줍니다.
+const API_ROOT = import.meta.env.VITE_API_URL || 'http://localhost'; 
 const API_BASE_URL = `${API_ROOT}/api/v1`;
 
-// Axios 인스턴스 생성 (기본 URL에 /api/v1 포함됨)
+// Axios Request Config 타입 확장 ( _retry 속성 추가 )
+interface CustomAxiosRequestConfig extends InternalAxiosRequestConfig {
+  _retry?: boolean;
+}
+
+// Axios 인스턴스 생성
 const client: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
   headers: {
@@ -34,7 +39,7 @@ const processQueue = (error: AxiosError | null, token: string | null = null) => 
 // --------------------------------------------------
 // 2. Request Interceptor: 모든 요청에 Access Token 주입
 // --------------------------------------------------
-client.interceptors.request.use((config) => {
+client.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const { token } = useAuthStore.getState();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
@@ -48,7 +53,7 @@ client.interceptors.request.use((config) => {
 client.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
-    const originalRequest = error.config;
+    const originalRequest = error.config as CustomAxiosRequestConfig;
     
     // 조건: 401 에러 + 아직 재시도 안 함 + 로그인/토큰 갱신 요청 아님
     if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !originalRequest.url?.includes('/auth/login')) {
@@ -69,7 +74,6 @@ client.interceptors.response.use(
             // 🆕 Refresh Token으로 새 Access Token 요청
             try {
                 // client 인스턴스가 아닌 axios를 직접 사용하여 Interceptor 순환 방지
-                // 🚨 주의: API_ROOT + /api/v1 경로를 정확히 조합
                 const refreshResponse = await axios.post(`${API_BASE_URL}/auth/refresh`, {
                     refresh_token: refreshToken
                 });
