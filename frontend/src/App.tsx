@@ -6,6 +6,7 @@ import { useUIStore } from '@/store/uiStore';
 import Layout from '@/components/layout/Layout';
 import Home from '@/pages/Home';
 import Search from '@/pages/Search';
+import MoodSearch from '@/pages/MoodSearch'; // ✅ [NEW] 무드 검색 페이지
 import Login from '@/pages/Login';
 import Signup from '@/pages/Signup'; // 👈 [NEW] 회원가입 페이지 추가
 import ProductDetail from '@/pages/ProductDetail';
@@ -66,6 +67,9 @@ export default function App() {
             <Route path="/signup" element={<Signup />} /> {/* 👈 [NEW] 라우트 연결 */}
             <Route path="/profile" element={<Profile />} />
             <Route path="/settings" element={<Settings />} />
+
+            {/* 무드 검색 페이지 */}
+            <Route path="/mood-search" element={<MoodSearch />} />
             
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

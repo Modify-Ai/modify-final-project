@@ -494,3 +494,101 @@ async def ai_search(
         },
         "products": product_responses
     }
+
+
+# ✅ [NEW] 무드 기반 검색 (향수/음악 → 패션)
+@router.post("/mood-search", response_model=Dict[str, Any])
+async def mood_search(
+    query: str = Form(..., description="향수 노트 또는 음악 장르"),
+    limit: int = Form(12),
+    db: AsyncSession = Depends(deps.get_db),
+) -> Any:
+    """
+    무드 기반 패션 검색
+    - 향수 노트: "플로럴", "우디", "시트러스" 등
+    - 음악 장르: "재즈", "힙합", "클래식" 등
+    - 자동으로 어울리는 패션 스타일 추천
+    """
+    from src.utils.mood_mapper import extract_mood_keywords, build_mood_search_query
+
+    logger.info(f"🎭 Mood Search Request: '{query}'")
+
+    # 1. 무드 키워드 추출
+    mood_data = extract_mood_keywords(query)
+
+    if not mood_data.get("detected"):
+        # 감지된 무드가 없으면 일반 검색으로 fallback
+        logger.info(f"⚠️ No mood detected, falling back to regular search")
+        return {
+            "status": "NO_MOOD_DETECTED",
+            "message": f"'{query}'에서 향수 노트나 음악 장르를 찾을 수 없습니다. 일반 검색을 시도하세요.",
+            "products": []
+        }
+
+    logger.info(f"✅ Mood detected: {mood_data['detected']} ({mood_data['type']})")
+
+    # 2. 무드 데이터로부터 검색 쿼리 생성
+    search_query = build_mood_search_query(mood_data)
+    negative_keywords_str = ", ".join(mood_data.get("negative", []))
+
+    logger.info(f"🔍 Generated query: '{search_query}' (negative: '{negative_keywords_str}')")
+
+    # 3. 데이터베이스 검색
+    try:
+        # 키워드 기반 하이브리드 검색
+        results = await crud_product.search_smart_hybrid(
+            db,
+            query=search_query,
+            limit=limit * 2 if negative_keywords_str else limit  # 네거티브 필터 고려
+        )
+
+        logger.info(f"✅ Found {len(results)} products")
+
+        # 4. 네거티브 필터링
+        if negative_keywords_str:
+            negative_keywords = extract_negative_keywords(negative_keywords_str)
+            results = filter_products_by_negative(results, negative_keywords)
+            results = results[:limit]
+
+        # 5. Response 구성
+        product_responses = []
+        for p in results:
+            try:
+                p_dict = {
+                    "id": p.id,
+                    "name": p.name or "Unnamed Product",
+                    "description": p.description or "",
+                    "price": float(p.price) if p.price else 0,
+                    "stock_quantity": int(p.stock_quantity) if p.stock_quantity else 0,
+                    "category": p.category or "Etc",
+                    "image_url": p.image_url or "",
+                    "gender": p.gender or "Unisex",
+                    "is_active": p.is_active if p.is_active is not None else True,
+                    "created_at": p.created_at,
+                    "updated_at": p.updated_at,
+                    "in_stock": (p.stock_quantity or 0) > 0
+                }
+                validated_product = ProductResponse.model_validate(p_dict)
+                product_responses.append(validated_product)
+            except ValidationError:
+                continue
+
+        # 6. 무드 설명 생성
+        mood_description = f"{mood_data['detected']}의 {mood_data['mood']} 분위기에 어울리는 {mood_data['style']} 스타일입니다."
+
+        return {
+            "status": "SUCCESS",
+            "mood_info": {
+                "type": mood_data["type"],  # "perfume" or "music"
+                "detected": mood_data["detected"],
+                "style": mood_data["style"],
+                "mood": mood_data["mood"],
+                "colors": mood_data["colors"],
+                "description": mood_description
+            },
+            "products": product_responses
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Mood search failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
