@@ -21,6 +21,7 @@ from src.api import deps
 from src.crud.crud_product import crud_product
 from src.schemas.product import ProductResponse
 from src.config.settings import settings
+from src.models.product import Product  # ✅ Product 모델 import 추가
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -65,17 +66,55 @@ def extract_core_keyword(query: str) -> str:
 def is_celebrity_search(query: str) -> bool:
     """연예인/인물 검색인지 판단"""
     import re
-    
+
     # 패션 관련 키워드와 함께 사용된 경우
     fashion_keywords = ["패션", "스타일", "코디", "룩", "공항", "착장", "의상", "옷"]
-    
+
     # 한글 이름 패턴 (2-4글자)
     korean_name = re.search(r'[가-힣]{2,4}', query)
-    
+
     if korean_name and any(k in query for k in fashion_keywords):
         return True
-    
+
     return False
+
+
+def extract_negative_keywords(negative_prompt: Optional[str]) -> List[str]:
+    """
+    네거티브 프롬프트에서 제외할 키워드 리스트 추출
+    예: "청바지, 스니커즈, 캐주얼" -> ["청바지", "스니커즈", "캐주얼"]
+    """
+    if not negative_prompt:
+        return []
+
+    # 쉼표, 슬래시, 공백으로 구분
+    import re
+    keywords = re.split(r'[,/\s]+', negative_prompt.strip())
+
+    # 빈 문자열 제거 및 소문자 변환
+    return [k.strip().lower() for k in keywords if k.strip()]
+
+
+def filter_products_by_negative(products: List[Product], negative_keywords: List[str]) -> List[Product]:
+    """
+    네거티브 키워드를 포함하는 상품 제외
+    """
+    if not negative_keywords:
+        return products
+
+    filtered = []
+    for product in products:
+        # 상품명, 설명, 카테고리에서 네거티브 키워드 검색
+        text_to_check = f"{product.name} {product.description or ''} {product.category or ''}".lower()
+
+        # 네거티브 키워드가 하나라도 포함되면 제외
+        contains_negative = any(keyword in text_to_check for keyword in negative_keywords)
+
+        if not contains_negative:
+            filtered.append(product)
+
+    logger.info(f"🚫 Filtered {len(products) - len(filtered)} products by negative keywords: {negative_keywords}")
+    return filtered
 
 
 async def fetch_image_as_base64(url: str) -> Optional[str]:
@@ -104,6 +143,7 @@ class ClipSearchRequest(BaseModel):
     limit: int = 12
     query: Optional[str] = None  # ✅ 원본 검색어 (성별 추출용)
     target: str = "full"  # ✅ "full", "upper", "lower"
+    negative_prompt: Optional[str] = None  # ✅ 네거티브 프롬프트 (제외할 특징)
 
 
 @router.post("/search-by-clip")
@@ -169,12 +209,18 @@ async def search_by_clip_image(
         results = await crud_product.search_by_clip_vector(
             db,
             clip_vector=clip_vector,
-            limit=request.limit,
+            limit=request.limit * 2 if request.negative_prompt else request.limit,  # ✅ 네거티브 필터링을 고려해 더 많이 가져옴
             filter_gender=target_gender  # ✅ 성별 필터 추가!
         )
-        
+
         logger.info(f"✅ CLIP search found {len(results)} products (gender filter: {target_gender})")
-        
+
+        # ✅ 네거티브 프롬프트 필터링
+        if request.negative_prompt:
+            negative_keywords = extract_negative_keywords(request.negative_prompt)
+            results = filter_products_by_negative(results, negative_keywords)
+            results = results[:request.limit]  # 필터링 후 원래 limit으로 제한
+
         # 3. Response 구성
         product_responses = []
         for p in results:
@@ -243,6 +289,7 @@ async def ai_search(
     query: str = Form(..., description="사용자 검색 쿼리"),
     image_file: Optional[UploadFile] = File(None),
     limit: int = Form(12),
+    negative_prompt: Optional[str] = Form(None, description="제외할 특징/스타일"),
     db: AsyncSession = Depends(deps.get_db),
 ) -> Any:
     """
@@ -405,6 +452,12 @@ async def ai_search(
     except Exception as e:
         logger.error(f"❌ DB Search Error: {e}")
         raise HTTPException(status_code=500, detail="Database Search Failed")
+
+    # ✅ 네거티브 프롬프트 필터링
+    if negative_prompt:
+        negative_keywords = extract_negative_keywords(negative_prompt)
+        logger.info(f"🚫 Applying negative filter: {negative_keywords}")
+        results = filter_products_by_negative(results, negative_keywords)
 
     # 5. Response 구성
     product_responses = []

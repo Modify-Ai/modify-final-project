@@ -71,6 +71,7 @@ export default function Search() {
     const { addRecentSearch } = useSearchStore();
 
     const [query, setQuery] = useState(queryTextFromUrl);
+    const [negativePrompt, setNegativePrompt] = useState<string>("");  // ✅ 네거티브 프롬프트
     const [imageFile, setImageFile] = useState<File | null>(null);
     const [results, setResults] = useState<ProductResponse[]>([]);
     
@@ -130,6 +131,7 @@ export default function Search() {
         const formData = new FormData();
         formData.append('query', currentQuery);
         if (currentImage) formData.append('image_file', currentImage);
+        if (negativePrompt) formData.append('negative_prompt', negativePrompt);  // ✅ 네거티브 프롬프트 추가
         formData.append('limit', '12');
 
         try {
@@ -291,6 +293,28 @@ export default function Search() {
                         검색
                     </button>
                 </div>
+
+                {/* ✅ 네거티브 프롬프트 입력 필드 */}
+                <div className="flex items-center space-x-3 mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+                    <X className="w-5 h-5 text-red-400" />
+                    <input
+                        type="text"
+                        value={negativePrompt}
+                        onChange={(e) => setNegativePrompt(e.target.value)}
+                        placeholder="제외할 스타일 (예: 청바지, 스니커즈, 캐주얼)"
+                        className="flex-1 text-sm border-none focus:ring-0 outline-none placeholder:text-gray-300 dark:placeholder:text-gray-600 bg-transparent text-gray-900 dark:text-white"
+                    />
+                    {negativePrompt && (
+                        <button
+                            type="button"
+                            onClick={() => setNegativePrompt("")}
+                            className="text-xs text-gray-400 hover:text-red-500 transition-colors"
+                        >
+                            초기화
+                        </button>
+                    )}
+                </div>
+
                 {!isLoading && (
                     <div {...(imageFile ? {} : {onClick: () => fileInputRef.current?.click()})} className="cursor-pointer">
                          <input type="file" accept="image/*" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
