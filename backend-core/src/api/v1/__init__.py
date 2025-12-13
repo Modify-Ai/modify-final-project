@@ -8,7 +8,8 @@ from src.api.v1.endpoints import (
     products,
     search,
     wishlist,
-    upload
+    upload,
+    feedback
 )
 
 api_router = APIRouter()
@@ -30,5 +31,8 @@ api_router.include_router(search.router, prefix="/search", tags=["search"])
 
 # 6. [NEW] 위시리스트 (찜하기)
 api_router.include_router(wishlist.router, prefix="/wishlist", tags=["wishlist"])
+
+# 7. [NEW] 피드백 시스템 (검색 결과 평가)
+api_router.include_router(feedback.router, prefix="/feedback", tags=["feedback"])
 
 api_router.include_router(upload.router, prefix="/utils", tags=["utils"])

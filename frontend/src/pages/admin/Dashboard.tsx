@@ -1,15 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement,
   Title, Tooltip, Legend, ArcElement,
 } from 'chart.js';
 import { Line, Doughnut } from 'react-chartjs-2';
-import { TrendingUp, Users, Package, DollarSign, ListChecks, Loader2, Mail } from 'lucide-react'; 
+import { TrendingUp, Users, Package, DollarSign, ListChecks, Loader2, Mail, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { Button } from '@/components/ui/button'; 
+import { Button } from '@/components/ui/button';
 import { useQuery } from '@tanstack/react-query';
 import client from '@/api/client';
-import EmailBroadcastModal from '../../components/common/modals/EmailBroadcastModal'; 
+import EmailBroadcastModal from '../../components/common/modals/EmailBroadcastModal';
+import { feedbackAPI, FeedbackListItem } from '@/api/feedback'; 
 
 interface SalesData { label: string; value: number; }
 interface DashboardStatsResponse {
@@ -44,11 +45,31 @@ const useDashboardStats = (timeRange: 'daily' | 'weekly' | 'monthly') => {
 
 export default function Dashboard() {
     const [timeRange, setTimeRange] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
-    
+
     // 모달 상태 관리
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
 
+    // 피드백 데이터
+    const [feedbacks, setFeedbacks] = useState<FeedbackListItem[]>([]);
+    const [isFeedbackLoading, setIsFeedbackLoading] = useState(false);
+
     const { data: stats, isLoading, isError } = useDashboardStats(timeRange);
+
+    // 피드백 데이터 로드
+    useEffect(() => {
+        const loadFeedbacks = async () => {
+            setIsFeedbackLoading(true);
+            try {
+                const data = await feedbackAPI.getRecentFeedbacks(20);
+                setFeedbacks(data);
+            } catch (error) {
+                console.error('Failed to load feedbacks:', error);
+            } finally {
+                setIsFeedbackLoading(false);
+            }
+        };
+        loadFeedbacks();
+    }, []);
 
     if (isLoading) {
         return <div className="p-10 text-center text-xl dark:text-gray-300 flex items-center justify-center min-h-[50vh]"><Loader2 className="animate-spin mr-3" /> 데이터 로딩 중...</div>;
@@ -158,10 +179,76 @@ export default function Dashboard() {
                 </div>
             </div>
 
+            {/* 피드백 통계 섹션 */}
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-bold text-lg text-gray-800 dark:text-white flex items-center gap-2">
+                        <ThumbsUp className="w-5 h-5 text-green-500" />
+                        최근 사용자 피드백
+                    </h3>
+                    <span className="text-sm text-gray-500 dark:text-gray-400">최근 20개</span>
+                </div>
+
+                {isFeedbackLoading ? (
+                    <div className="text-center py-8">
+                        <Loader2 className="w-6 h-6 animate-spin mx-auto text-gray-400" />
+                    </div>
+                ) : feedbacks.length === 0 ? (
+                    <div className="text-center py-8 text-gray-400">
+                        아직 피드백이 없습니다.
+                    </div>
+                ) : (
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                            <thead className="bg-gray-50 dark:bg-gray-700">
+                                <tr>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">상품 ID</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">피드백</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">검색어</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">사용자</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">일시</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                                {feedbacks.map((feedback) => (
+                                    <tr key={feedback.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                                        <td className="px-4 py-3 text-gray-900 dark:text-white">
+                                            <Link to={`/products/${feedback.product_id}`} className="text-blue-600 hover:underline">
+                                                #{feedback.product_id}
+                                            </Link>
+                                        </td>
+                                        <td className="px-4 py-3">
+                                            {feedback.feedback_type === 'like' ? (
+                                                <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+                                                    <ThumbsUp className="w-3 h-3" /> 좋아요
+                                                </span>
+                                            ) : (
+                                                <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium">
+                                                    <ThumbsDown className="w-3 h-3" /> 싫어요
+                                                </span>
+                                            )}
+                                        </td>
+                                        <td className="px-4 py-3 text-gray-600 dark:text-gray-300 max-w-xs truncate">
+                                            {feedback.search_query || '-'}
+                                        </td>
+                                        <td className="px-4 py-3 text-gray-600 dark:text-gray-300 text-xs">
+                                            {feedback.user_id ? `User #${feedback.user_id}` : `Session: ${feedback.session_id?.slice(0, 8)}...`}
+                                        </td>
+                                        <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">
+                                            {new Date(feedback.created_at).toLocaleString('ko-KR')}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
+
             {/* 모달 컴포넌트 */}
-            <EmailBroadcastModal 
-                isOpen={isEmailModalOpen} 
-                onClose={() => setIsEmailModalOpen(false)} 
+            <EmailBroadcastModal
+                isOpen={isEmailModalOpen}
+                onClose={() => setIsEmailModalOpen(false)}
             />
         </div>
     );

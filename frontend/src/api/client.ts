@@ -1,5 +1,6 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
-import { useAuthStore } from '../store/authStore'; 
+import { useAuthStore } from '../store/authStore';
+import { getOrCreateSessionId } from '../utils/session'; 
 
 // 🚨 환경 변수 또는 하드코딩된 주소 사용
 // 배포 환경에서는 import.meta.env.VITE_API_URL 등을 사용하세요.
@@ -32,13 +33,20 @@ const processQueue = (error: AxiosError | null, token: string | null = null) => 
 };
 
 // --------------------------------------------------
-// 2. Request Interceptor: 모든 요청에 Access Token 주입
+// 2. Request Interceptor: 모든 요청에 Access Token 또는 Session ID 주입
 // --------------------------------------------------
 client.interceptors.request.use((config) => {
   const { token } = useAuthStore.getState();
+
   if (token) {
+    // 로그인 사용자: JWT 토큰
     config.headers.Authorization = `Bearer ${token}`;
+  } else {
+    // 비로그인 사용자: 세션 ID
+    const sessionId = getOrCreateSessionId();
+    config.headers['X-Session-Id'] = sessionId;
   }
+
   return config;
 });
 

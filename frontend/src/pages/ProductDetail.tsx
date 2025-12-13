@@ -9,6 +9,7 @@ import {
 import client from '../api/client';
 import ProductCard from '../components/product/ProductCard';
 import Modal from '../components/ui/Modal';
+import { FeedbackButtons } from '../components/product/FeedbackButtons';
 
 // --- Types ---
 interface ProductResponse {
@@ -374,6 +375,12 @@ export default function ProductDetail() {
                         <button onClick={handleBuyNow} disabled={!product.in_stock} className="w-full py-4 bg-purple-600 text-white font-bold rounded-xl flex items-center justify-center gap-2 hover:bg-purple-700 transition-all shadow-lg active:scale-95 disabled:bg-gray-300 disabled:cursor-not-allowed">
                             <CreditCard className="w-5 h-5" /> 바로 구매하기
                         </button>
+                    </div>
+
+                    {/* 피드백 버튼 */}
+                    <div className="mb-8 pb-6 border-b border-gray-100">
+                        <p className="text-xs text-gray-500 mb-3 font-medium">이 상품이 마음에 드시나요?</p>
+                        <FeedbackButtons productId={product.id} />
                     </div>
 
                     {/* AI 기능 섹션 */}
