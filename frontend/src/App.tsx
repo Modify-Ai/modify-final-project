@@ -11,6 +11,7 @@ import Signup from '@/pages/Signup';
 import ProductDetail from '@/pages/ProductDetail';
 import Profile from '@/pages/Profile';
 import Settings from '@/pages/Settings';
+import VirtualFitting from '@/pages/VirtualFitting';
 
 // ✅ 장바구니 & 결제 페이지
 import Cart from '@/pages/Cart';
@@ -55,6 +56,7 @@ export default function App() {
               <Route path="/" element={<Home />} />
               <Route path="/search" element={<Search />} />
               <Route path="/products/:id" element={<ProductDetail />} />
+              <Route path="/virtual-fitting" element={<VirtualFitting />} />
               
               {/* 장바구니 & 결제 */}
               <Route path="/cart" element={<Cart />} />
