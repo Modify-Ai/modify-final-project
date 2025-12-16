@@ -5,6 +5,9 @@ from src.db.session import AsyncSessionLocal
 from src.crud import crud_user
 from src.schemas.user import UserCreate
 
+# [추가] user 모델과 관계된 FittingResult 로드 (오류 방지)
+from src.models.fitting import FittingResult
+
 # 환경 변수에서 관리자 정보를 가져오거나 기본값을 사용합니다.
 # .env.dev 파일에 정의된 값이 사용됩니다.
 SUPERUSER_EMAIL = os.getenv("SUPERUSER_EMAIL", "admin@modify.com")

@@ -23,9 +23,10 @@ def upgrade() -> None:
     op.add_column('users', sa.Column('birthdate', sa.Date(), nullable=True))
     op.add_column('users', sa.Column('phone_number', sa.String(length=20), nullable=True))
     op.add_column('users', sa.Column('is_phone_verified', sa.Boolean(), nullable=False))
-    op.add_column('users', sa.Column('zip_code', sa.String(length=10), nullable=True))
+    op.add_column('users', sa.Column('zip_code', sa.String(length=20), nullable=True))
     op.add_column('users', sa.Column('address', sa.String(length=255), nullable=True))
     op.add_column('users', sa.Column('detail_address', sa.String(length=255), nullable=True))
+    op.add_column('users', sa.Column('gender', sa.String(length=10), nullable=True))
     op.create_unique_constraint(None, 'users', ['phone_number'])
     # ### end Alembic commands ###
 
@@ -39,4 +40,5 @@ def downgrade() -> None:
     op.drop_column('users', 'is_phone_verified')
     op.drop_column('users', 'phone_number')
     op.drop_column('users', 'birthdate')
+    op.drop_column('users', 'gender')
     # ### end Alembic commands ###

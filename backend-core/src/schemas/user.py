@@ -16,6 +16,8 @@ class UserBase(BaseModel):
     address: Optional[str] = None           # 기본 주소
     detail_address: Optional[str] = None    # 상세 주소
 
+    birthdate: Optional[str] = None         # 생년월일
+
 # 회원가입/생성 시 필요한 속성
 class UserCreate(UserBase):
     password: str
