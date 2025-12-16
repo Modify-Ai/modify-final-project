@@ -54,7 +54,7 @@ async def login_access_token(
         db, email=form_data.username, password=form_data.password
     )
     if not user:
-        raise HTTPException(status_code=400, detail="Incorrect email or password")
+        raise HTTPException(status_code=400, detail="회원정보가 일치하지 않습니다.")
     elif not user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
     

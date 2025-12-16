@@ -235,11 +235,11 @@ export default function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
                 계정 관리
               </p>
 
-              {/* 계정 설정으로 이동 */}
+              {/* 계정 설정으로 이동 (주소 수정됨!) */}
               <button
                 onClick={() => {
                   onClose();
-                  navigate("/account");
+                  navigate("/account"); // 👈 여기가 진짜 계정 설정 페이지 주소!
                 }}
                 className="w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 rounded-2xl transition-colors group"
               >

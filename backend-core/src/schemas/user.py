@@ -27,7 +27,8 @@ class UserCreate(UserBase):
         return v
 
 # 업데이트 시 필요한 속성 (내 정보 수정)
-class UserUpdate(BaseModel): 
+class UserUpdate(BaseModel):
+    email: Optional[EmailStr] = None
     full_name: Optional[str] = None
     password: Optional[str] = None
     is_marketing_agreed: Optional[bool] = None
