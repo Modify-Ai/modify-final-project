@@ -4,6 +4,13 @@
 
 @layer base {
   body {
+    /* 👇 [추가됨] Pretendard를 기본 폰트로 강제 적용 */
+    font-family: "Pretendard", ui-sans-serif, system-ui, -apple-system,
+      BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+      "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji",
+      "Segoe UI Symbol", "Noto Color Emoji";
+
+    /* 기존 스타일 유지 */
     @apply antialiased text-slate-900 bg-white dark:bg-dark-bg dark:text-white;
   }
 }

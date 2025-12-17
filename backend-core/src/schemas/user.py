@@ -50,7 +50,8 @@ class UserCreate(UserBase):
         return clean_number  # DB에는 하이픈 없이 저장 (권장)
 
 # 업데이트 시 필요한 속성 (내 정보 수정)
-class UserUpdate(BaseModel): 
+class UserUpdate(BaseModel):
+    email: Optional[EmailStr] = None
     full_name: Optional[str] = None
     password: Optional[str] = None
     is_marketing_agreed: Optional[bool] = None
