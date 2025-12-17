@@ -24,6 +24,10 @@ from src.schemas.product import (
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# 🚨 [CRITICAL FIX] ECS 환경에서 DNS 이슈 방지를 위한 강제 로컬호스트 주소
+# settings.py가 환경변수를 잘못 읽더라도, 코드는 무조건 127.0.0.1을 바라봅니다.
+SAFE_AI_URL = "http://127.0.0.1:8001/api/v1"
+
 # ------------------------------------------------------------------
 # [Helper] 문자열 정리
 # ------------------------------------------------------------------
@@ -37,7 +41,6 @@ def sanitize_string(value: Any) -> Any:
 # ------------------------------------------------------------------
 async def _heal_product_embedding(db: AsyncSession, product: Any) -> Any:
     """상품 데이터(임베딩, 설명) 누락 시 AI 서비스로 복구"""
-    AI_SERVICE_API_URL = settings.AI_SERVICE_API_URL
     
     is_broken = (
         product.embedding is None or 
@@ -57,7 +60,8 @@ async def _heal_product_embedding(db: AsyncSession, product: Any) -> Any:
         try:
             async with httpx.AsyncClient(timeout=20.0) as client:
                 prompt = f"상품명: {product.name}, 카테고리: {product.category}. 매력적인 쇼핑몰 상세 설명을 5문장 작성해줘."
-                res = await client.post(f"{AI_SERVICE_API_URL}/llm-generate-response", json={"prompt": prompt})
+                # SAFE_AI_URL 사용
+                res = await client.post(f"{SAFE_AI_URL}/llm-generate-response", json={"prompt": prompt})
                 if res.status_code == 200:
                     new_description = res.json().get("answer", product.name)
         except Exception as e:
@@ -68,7 +72,8 @@ async def _heal_product_embedding(db: AsyncSession, product: Any) -> Any:
     try:
         text_to_embed = f"{product.name} {product.category} {new_description}"
         async with httpx.AsyncClient(timeout=10.0) as client:
-            res = await client.post(f"{AI_SERVICE_API_URL}/embed-text", json={"text": text_to_embed})
+            # SAFE_AI_URL 사용
+            res = await client.post(f"{SAFE_AI_URL}/embed-text", json={"text": text_to_embed})
             if res.status_code == 200:
                 new_vector = res.json().get("vector", [])
     except Exception as e:
@@ -87,7 +92,7 @@ async def _heal_product_embedding(db: AsyncSession, product: Any) -> Any:
 
 
 # =========================================================
-# 1️⃣ [API] 이미지 자동 분석 업로드 (단일) - 경로 수정됨! 🚨
+# 1️⃣ [API] 이미지 자동 분석 업로드 (단일) - 수정 완료 ✅
 # =========================================================
 @router.post("/upload/image-auto", response_model=ProductResponse)
 async def upload_product_image_auto(
@@ -98,21 +103,23 @@ async def upload_product_image_auto(
     if not current_user.is_superuser:
         raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다.")
 
-    AI_SERVICE_API_URL = settings.AI_SERVICE_API_URL
     ai_analyzed_data = {}
-    
     logger.info(f"Processing Image: {file.filename}")
 
-    # [Step A] AI 서비스로 이미지 전송
+    # 1. 파일 내용 읽기
+    await file.seek(0)
+    file_content = await file.read()
+    
+    # [Step A] AI 서비스로 이미지 전송 (파일 내용 그대로 전송)
     async with httpx.AsyncClient(timeout=60.0) as client:
         try:
-            await file.seek(0)
-            file_content = await file.read()
+            # multipart/form-data로 전송 (파일 자체를 보냄)
             files = {"file": (file.filename, file_content, file.content_type)}
             
+            # 🚨 [FIX] SAFE_AI_URL 사용 (DNS 에러 해결)
             response = await client.post(
-                f"{AI_SERVICE_API_URL}/analyze-image",
-                files=files
+                f"{SAFE_AI_URL}/analyze-image",
+                files=files 
             )
             
             if response.status_code == 200:
@@ -122,9 +129,8 @@ async def upload_product_image_auto(
         except Exception as e:
             logger.error(f"AI Connection Error: {e}")
 
-    # [Step B] 로컬 저장 (경로 수정됨)
+    # [Step B] 로컬 저장
     try:
-        # ✅ [FIX] 절대 경로 사용 (main.py, upload.py와 일치시킴)
         UPLOAD_DIR = "/app/src/static/images"
         os.makedirs(UPLOAD_DIR, exist_ok=True)
         
@@ -135,7 +141,6 @@ async def upload_product_image_auto(
         with open(file_path, "wb") as buffer:
             buffer.write(file_content)
             
-        # 프론트엔드에서 http://localhost:8000 을 붙여주므로 경로는 /static/... 으로 저장
         final_image_url = f"/static/images/{unique_filename}"
         
     except Exception as e:
@@ -144,11 +149,8 @@ async def upload_product_image_auto(
 
     # [Step C] 데이터 파싱
     raw_name = ai_analyzed_data.get("name")
-    if not raw_name or len(str(raw_name).strip()) < 2:
-        final_name = f"상품 {file.filename}"
-    else:
-        final_name = str(raw_name).strip()
-
+    final_name = str(raw_name).strip() if (raw_name and len(str(raw_name).strip()) >= 2) else f"상품 {file.filename}"
+    
     raw_desc = ai_analyzed_data.get("description")
     final_desc = str(raw_desc).strip() if raw_desc else "AI 분석 중... 상세 내용을 수정해주세요."
 
@@ -159,17 +161,20 @@ async def upload_product_image_auto(
     except:
         final_price = 0
 
-    # BERT 벡터 (768차원)
+    # 🚨 [CRITICAL FIX] 벡터 데이터 검증 및 None 변환
+    # AI가 실패해서 []를 보내면, DB는 에러를 뱉습니다. 이를 방지하기 위해 None으로 변환합니다.
     vector = ai_analyzed_data.get("vector", [])
-    if not vector:
-        logger.warning("⚠️ Empty BERT vector received from AI.")
+    if not vector or len(vector) != 768:
+        logger.warning(f"⚠️ Invalid BERT vector size: {len(vector) if vector else 0}. Saving as NULL.")
+        vector = None  # pgvector는 NULL 허용
 
-    # CLIP 벡터 (512차원)
     vector_clip = ai_analyzed_data.get("vector_clip", [])
-    if not vector_clip:
-        logger.warning("⚠️ Empty CLIP vector received from AI. Image-based search will be limited.")
+    if not vector_clip or len(vector_clip) != 512:
+        logger.warning(f"⚠️ Invalid CLIP vector size: {len(vector_clip) if vector_clip else 0}. Saving as NULL.")
+        vector_clip = None # pgvector는 NULL 허용
 
-    logger.info(f"📊 Vectors received - BERT: {len(vector)}dim, CLIP: {len(vector_clip)}dim")
+    if vector is not None:
+        logger.info(f"📊 Vectors valid - BERT: 768dim, CLIP: {512 if vector_clip else 'None'}")
 
     # [Step D] DB 저장
     product_in_data = {
@@ -179,19 +184,24 @@ async def upload_product_image_auto(
         "price": final_price,
         "stock_quantity": 100,
         "image_url": final_image_url,
-        "embedding": vector,              # BERT
-        "embedding_clip": vector_clip,    # CLIP
+        "embedding": vector,              # None 처리됨 -> 에러 안 남
+        "embedding_clip": vector_clip,    # None 처리됨 -> 에러 안 남
         "gender": final_gender,
         "is_active": True
     }
 
     try:
         new_product = await crud_product.create(db, obj_in=product_in_data)
-        new_product = await _heal_product_embedding(db, new_product)
-        logger.info(f"✅ Product created with ID {new_product.id} (BERT + CLIP vectors saved)")
+        
+        # 벡터가 없으면 나중에라도 복구 시도 (옵션)
+        if vector is None:
+            new_product = await _heal_product_embedding(db, new_product)
+            
+        logger.info(f"✅ Product created with ID {new_product.id}")
         return new_product
     except Exception as e:
         logger.error(f"DB Insert Error: {e}")
+        # 상세 에러 메시지 반환
         raise HTTPException(status_code=500, detail=f"DB 저장 실패: {str(e)}")
 
 
@@ -218,7 +228,9 @@ async def upload_products_csv(
 
     csv_reader = csv.DictReader(io.StringIO(decoded_content))
     results = {"success": 0, "failed": 0, "errors": []}
-    AI_SERVICE_API_URL = settings.AI_SERVICE_API_URL
+    
+    # SAFE_AI_URL 사용
+    AI_SERVICE_API_URL = SAFE_AI_URL
 
     for row in csv_reader:
         try:
@@ -244,7 +256,7 @@ async def upload_products_csv(
             image_url = row.get("image_url") or row.get("이미지") or "https://placehold.co/400x500?text=No+Image"
 
             # BERT 벡터 생성
-            vector = []
+            vector = None # 기본값 None
             text_for_vector = f"[{gender}] {name} {category} {description}"
             
             async with httpx.AsyncClient(timeout=3.0) as client:
@@ -254,12 +266,14 @@ async def upload_products_csv(
                         json={"text": text_for_vector}
                     )
                     if res.status_code == 200:
-                        vector = res.json().get("vector", [])
+                        v_data = res.json().get("vector", [])
+                        if v_data and len(v_data) == 768:
+                            vector = v_data
                 except Exception:
                     pass 
 
             # CLIP 벡터 생성
-            vector_clip = []
+            vector_clip = None # 기본값 None
             if image_url and not image_url.startswith("https://placehold"):
                 try:
                     async with httpx.AsyncClient(timeout=10.0) as client:
@@ -273,8 +287,9 @@ async def upload_products_csv(
                                 json={"image_b64": image_b64}
                             )
                             if clip_res.status_code == 200:
-                                vector_clip = clip_res.json().get("vector", [])
-                                logger.info(f"✅ CLIP vector generated for {name}")
+                                v_clip_data = clip_res.json().get("vector", [])
+                                if v_clip_data and len(v_clip_data) == 512:
+                                    vector_clip = v_clip_data
                 except Exception as e:
                     logger.warning(f"⚠️ CLIP vector generation failed for {name}: {e}")
 
@@ -321,9 +336,11 @@ async def create_product(
         product_data[key] = sanitize_string(value)
 
     # BERT 임베딩 생성
-    embedding_vector = []
+    embedding_vector = None
     text_to_embed = f"상품명: {product_data['name']} | 카테고리: {product_data.get('category', '')} | 설명: {product_data.get('description', '')}"
-    AI_SERVICE_API_URL = settings.AI_SERVICE_API_URL
+    
+    # SAFE_AI_URL 사용
+    AI_SERVICE_API_URL = SAFE_AI_URL
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -332,12 +349,13 @@ async def create_product(
                 json={"text": text_to_embed}
             )
             if response.status_code == 200:
-                embedding_vector = response.json().get("vector", [])
+                v_data = response.json().get("vector", [])
+                if v_data and len(v_data) == 768:
+                    embedding_vector = v_data
     except Exception as e:
         logger.error(f"❌ Failed to generate BERT embedding: {e}")
 
-    if embedding_vector:
-        product_data["embedding"] = embedding_vector
+    product_data["embedding"] = embedding_vector
 
     product = await crud_product.create(db, obj_in=product_data)
     return product
@@ -375,7 +393,9 @@ async def llm_query_product(
         f"사용자 질문: {query_body.question}\n"
         f"다음 상품 정보를 바탕으로 쇼핑몰 전문가처럼 친절하게 답변하세요.\n정보: {context}"
     )
-    AI_SERVICE_API_URL = settings.AI_SERVICE_API_URL
+    
+    # SAFE_AI_URL 사용
+    AI_SERVICE_API_URL = SAFE_AI_URL
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
@@ -418,7 +438,9 @@ async def get_ai_coordination_products(
         f"상품명 '{product.name}', 성별 '{product.gender}', 카테고리 '{product.category}'의 코디에 적합한 "
         f"다른 카테고리(예: 상의면 하의)의 검색 키워드 3개를 한국어로 쉼표로 구분해줘."
     )
-    AI_SERVICE_API_URL = settings.AI_SERVICE_API_URL
+    
+    # SAFE_AI_URL 사용
+    AI_SERVICE_API_URL = SAFE_AI_URL
     coordination_keywords = ["추천", "베이직", "데일리"]
 
     async with httpx.AsyncClient(timeout=10.0) as client:
@@ -517,7 +539,9 @@ async def get_related_by_color(
         raise HTTPException(status_code=404, detail="AI Analysis Required")
     
     color_prompt = f"상품 '{product.name}'의 설명에서 가장 지배적인 색상 키워드 1개만 (예: 블랙, 네이비) 답변하시오."
-    AI_SERVICE_API_URL = settings.AI_SERVICE_API_URL
+    
+    # SAFE_AI_URL 사용
+    AI_SERVICE_API_URL = SAFE_AI_URL
     target_color = "유사색상"
     
     async with httpx.AsyncClient(timeout=5.0) as client:
@@ -570,7 +594,9 @@ async def get_related_by_brand(
         raise HTTPException(status_code=404, detail="AI Analysis Required")
     
     style_prompt = f"'{product.name}' 상품의 스타일(예: 미니멀리즘, 스트리트) 키워드 3개만 쉼표로 구분하여 답변하시오."
-    AI_SERVICE_API_URL = settings.AI_SERVICE_API_URL
+    
+    # SAFE_AI_URL 사용
+    AI_SERVICE_API_URL = SAFE_AI_URL
     style_keywords = ["유사 스타일"]
     
     async with httpx.AsyncClient(timeout=5.0) as client:
