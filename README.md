@@ -83,3 +83,82 @@ docker-compose -f docker-compose.dev.yml exec backend-core alembic upgrade head
 docker-compose -f docker-compose.dev.yml down
 ```
 > `-v` 옵션을 추가하면 Docker 볼륨(DB 데이터 등)까지 모두 삭제되니 주의하세요.
+
+---
+
+## DB 테이블 수정사항 
+```bash
+
+-- 1. 트랜잭션 시작 및 기존 테이블 정리
+BEGIN;
+DROP TABLE IF EXISTS wishlists CASCADE;
+DROP TABLE IF EXISTS products CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+DROP TABLE IF EXISTS fitting_results CASCADE;
+
+-- 2. 벡터 확장 기능 활성화 (AI 핵심)
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- 3. Users 테이블 생성
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    hashed_password VARCHAR(255) NOT NULL,
+    full_name VARCHAR(100),
+    is_active BOOLEAN DEFAULT TRUE,
+    is_superuser BOOLEAN DEFAULT FALSE,
+    phone_number VARCHAR(50),
+    address VARCHAR(255),
+    zip_code VARCHAR(20),
+    detail_address VARCHAR(255),
+    birthdate VARCHAR(20),
+    gender VARCHAR(10),
+    is_marketing_agreed BOOLEAN DEFAULT FALSE,
+    is_phone_verified BOOLEAN DEFAULT false,
+    profile_image VARCHAR(500),
+    provider VARCHAR(50) DEFAULT 'local',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 4. Products 테이블 생성 (BERT + CLIP 벡터 포함)
+CREATE TABLE products (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    price INTEGER NOT NULL,
+    stock_quantity INTEGER NOT NULL DEFAULT 0,
+    category VARCHAR(100),
+    image_url VARCHAR(500),
+    is_active BOOLEAN DEFAULT TRUE NOT NULL,
+    gender VARCHAR(50) DEFAULT 'Unisex',
+    embedding vector(768),
+    embedding_clip vector(512),
+    embedding_clip_upper vector(512),
+    embedding_clip_lower vector(512),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP WITH TIME ZONE
+);
+
+-- 5. Wishlists 테이블 생성
+CREATE TABLE wishlists (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_wishlist_user_product UNIQUE (user_id, product_id)
+);
+
+-- 6. fitting_results 테이블 생성
+CREATE TABLE fitting_results (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    result_image_url VARCHAR NOT NULL,
+    category VARCHAR,
+    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT now()
+);
+CREATE INDEX ix_fitting_results_id ON fitting_results (id);
+
+-- 7. 변경사항 확정
+COMMIT;
