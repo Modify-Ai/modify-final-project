@@ -83,3 +83,110 @@ docker-compose -f docker-compose.dev.yml exec backend-core alembic upgrade head
 docker-compose -f docker-compose.dev.yml down
 ```
 > `-v` 옵션을 추가하면 Docker 볼륨(DB 데이터 등)까지 모두 삭제되니 주의하세요.
+
+---
+
+## 🚀 설치 및 실행 가이드 (Setup Guide)
+
+### 1. 프로젝트 클론 (Clone)
+```bash
+git clone <REPOSITORY_URL>
+cd modify-final-project
+
+2. 환경 변수 설정 (Environment Variables)
+Bash
+
+cp .env.example .env.dev
+.env.dev 파일에 WATSONX_API_KEY, GOOGLE_API_KEY, DB_PASSWORD 등을 설정합니다.
+
+3. 도커 컨테이너 실행 (Run)
+Bash
+
+docker-compose -f docker-compose.dev.yml up -d --build
+
+💾 데이터베이스 초기화 (Database Initialization)
+[필수] 처음 실행 시 DB 스키마와 벡터 컬럼을 생성하기 위해 아래 SQL을 실행해야 합니다.
+
+실행 방법
+Bash
+
+# 실행 중인 DB 컨테이너에 접속하여 SQL 실행
+docker-compose -f docker-compose.dev.yml exec postgres psql -U modify_user -d modify_db
+(아래 SQL 전체를 복사해서 붙여넣고 Enter)
+
+초기화 SQL (Schema Script)
+SQL
+
+-- 1. 트랜잭션 시작 및 기존 테이블 정리
+BEGIN;
+DROP TABLE IF EXISTS wishlists CASCADE;
+DROP TABLE IF EXISTS products CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+drop table if exists fitting_results cascade;
+
+-- 2. 벡터 확장 기능 활성화 (AI 핵심)
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- 3. Users 테이블 생성
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    hashed_password VARCHAR(255) NOT NULL,
+    full_name VARCHAR(100),
+    is_active BOOLEAN DEFAULT TRUE,
+    is_superuser BOOLEAN DEFAULT FALSE,
+    phone_number VARCHAR(50),
+    address VARCHAR(255),
+    zip_code VARCHAR(20),
+    detail_address VARCHAR(255),
+    birthdate VARCHAR(20),
+    gender VARCHAR(10),
+    is_marketing_agreed BOOLEAN DEFAULT FALSE,
+    is_phone_verified BOOLEAN DEFAULT false,
+    profile_image VARCHAR(500),
+    provider VARCHAR(50) DEFAULT 'local',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 4. Products 테이블 생성 (BERT + CLIP 벡터 포함)
+CREATE TABLE products (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    price INTEGER NOT NULL,
+    stock_quantity INTEGER NOT NULL DEFAULT 0,
+    category VARCHAR(100),
+    image_url VARCHAR(500),
+    is_active BOOLEAN DEFAULT TRUE NOT NULL,
+    gender VARCHAR(50) DEFAULT 'Unisex',
+    embedding vector(768),
+    embedding_clip vector(512),
+    embedding_clip_upper vector(512),
+    embedding_clip_lower vector(512),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP WITH TIME ZONE
+);
+
+-- 5. Wishlists 테이블 생성
+CREATE TABLE wishlists (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_wishlist_user_product UNIQUE (user_id, product_id)
+);
+
+-- 6. fitting_results 테이블 생성
+CREATE TABLE fitting_results (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    result_image_url VARCHAR NOT NULL,
+    category VARCHAR,
+    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT now()
+);
+CREATE INDEX ix_fitting_results_id ON fitting_results (id);
+
+-- 7. 변경사항 확정
+COMMIT;
