@@ -45,6 +45,7 @@ cp .env.example .env.dev
 *   `WATSONX_API_KEY`: IBM Watsonx.ai API 키
 *   `GOOGLE_API_KEY`: Google Custom Search API 키
 *   `POSTGRES_PASSWORD`: 데이터베이스 비밀번호 (원하는 값으로 설정)
+*   `REPLICATE_API_TOKEN`: Replicate API 키
 
 ### 🐳 3단계: Docker 컨테이너 실행
 
