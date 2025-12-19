@@ -136,7 +136,7 @@ export default function VirtualFitting() {
                 {[
                 { label: '상의 (Top)', value: 'upper_body' },
                 { label: '하의 (Bottom)', value: 'lower_body' },
-                { label: '드레스 (Dress)', value: 'dresses' },
+                { label: '아우터/원피스 (Outer & One-piece)', value: 'dresses' },
                 ].map((item) => (
                 <button
                     key={item.value}

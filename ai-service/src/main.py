@@ -90,6 +90,10 @@ class FashionClipRequest(BaseModel):
     image_b64: str
     target: str = "full"  # "full", "upper", "lower"
 
+class MaskRequest(BaseModel):
+    image_b64: str
+    target: str = "upper"  # "upper" or "lower"
+
 # --- Helper Methods ---
 
 def _fix_encoding(text: str) -> str:
@@ -309,6 +313,33 @@ async def search_by_image(request: ImageSearchRequest):
         
     except Exception as e:
         logger.error(f"❌ Image search failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/generate-mask")
+async def generate_mask_endpoint(request: MaskRequest):
+    """
+    [내부용 API] 백엔드에서 요청받은 이미지의 마스크를 생성해서 반환
+    """
+    try:
+        # 1. Base64 -> PIL Image 변환 (기존 함수 활용)
+        pil_image = _decode_image(request.image_b64)
+        
+        # 2. YOLO 실행 (이미 ai-service에는 로드되어 있음)
+        # (주의: yolo_detector에 generate_mask_for_fitting 메소드가 추가되어 있어야 함)
+        mask_pil = yolo_detector.generate_mask_for_fitting(pil_image, target=request.target)
+        
+        if mask_pil is None:
+            return {"mask_b64": None, "status": "failed"}
+
+        # 3. 마스크 -> Base64 변환 (PNG 포맷)
+        buffer = io.BytesIO()
+        mask_pil.save(buffer, format="PNG")
+        mask_b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+        
+        return {"mask_b64": f"data:image/png;base64,{mask_b64}", "status": "success"}
+
+    except Exception as e:
+        logger.error(f"❌ Mask Generation Failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- RAG Orchestrator ---

@@ -1,6 +1,6 @@
 import logging
 from typing import List, Dict, Any, Optional, Tuple
-from PIL import Image
+from PIL import Image, ImageDraw
 import numpy as np
 import torch
 import torch.nn as nn
@@ -17,6 +17,7 @@ class YOLOFashionDetector:
     def __init__(self):
         self.model = None
         self.pose_model = None
+        self.seg_model = None       # [추가] 세그멘테이션용 (가상 피팅)
         self.initialized = False
         
         # COCO 클래스 ID (person = 0)
@@ -54,6 +55,10 @@ class YOLOFashionDetector:
             try:
                 self.pose_model = YOLO('yolov8n-pose.pt')
                 logger.info("✅ YOLO Pose model loaded")
+            except: self.pose_model = None
+            try:
+                self.seg_model = YOLO('yolov8n-seg.pt')
+                logger.info("✅ YOLO Segmentation model loaded")
             except: self.pose_model = None
             
             # 복구
@@ -178,5 +183,139 @@ class YOLOFashionDetector:
         result["lower"] = self._crop_from_bbox(image, main_bbox, "lower")
         
         return result
+    
+    # [추가] 가상 피팅용 마스크 생성 함수
+    def generate_mask_for_fitting(self, image: Image.Image, target: str = "upper") -> Optional[Image.Image]:
+        """
+        YOLO Pose 기반의 정밀 마스킹
+        - 얼굴 보호: Bounding Box 상단 13% 제외
+        - 상/하의 분리: 골반(Hip) 좌표를 기준으로 동적 분리
+        """
+        if not self.initialized: self.initialize()
+        if self.seg_model is None or self.pose_model is None: 
+            return None
+
+        try:
+            if image.mode != "RGB": image = image.convert("RGB")
+            w, h = image.size
+
+            # 1. Segmentation 추론 (사람 모양 따기)
+            seg_results = self.seg_model(image, classes=[0], verbose=False) # 0: Person
+
+            final_mask = None
+            person_box = None   # 사람 위치(박스) 저장용
+
+            # 가장 큰 사람(주인공)의 마스크 찾기
+            if seg_results and seg_results[0].masks:
+                # 면적이 가장 큰 사람 선택
+                masks = seg_results[0].masks.data.cpu().numpy()
+                boxes = seg_results[0].boxes.xyxy.cpu().numpy()
+                
+                # (여러 명일 경우 가장 중앙에 있거나 큰 사람을 찾는 로직이 좋으나, 여기선 첫 번째 감지된 객체 사용)
+                # 보통 YOLO는 confidence 순으로 정렬되어 있음
+                mask_tensor = masks[0]
+                person_box = boxes[0] # x1, y1, x2, y2
+
+                # 마스크 리사이징 (YOLO 마스크 -> 원본 이미지 크기)
+                final_mask = Image.fromarray((mask_tensor * 255).astype(np.uint8)).resize((w, h))
+            
+            if final_mask is None: return None
+
+            draw = ImageDraw.Draw(final_mask)
+
+            # 2. Pose 추론 (관절 위치 찾기)
+            pose_results = self.pose_model(image, verbose=False)
+
+            # 골반(Hip) 위치 찾기 (Keypoint Index : 11=Left Hip, 12=Right Hip)
+            hip_y = int(h * 0.6)    # 기본값 : 못 찾으면 60% 지점 (Fallback)
+
+            if pose_results and pose_results[0].keypoints is not None:
+                # xy 좌표 가져오기
+                keypoints = pose_results[0].keypoints.xy.cpu().numpy()[0]
+                
+                # 11번(왼쪽 골반), 12번(오른쪽 골반)이 존재하는지 확인
+                # 좌표가 (0,0)이면 감지 안 된 것
+                left_hip = keypoints[11]
+                right_hip = keypoints[12]
+                
+                hips = []
+                if left_hip[1] > 0: hips.append(left_hip[1])
+                if right_hip[1] > 0: hips.append(right_hip[1])
+                
+                if hips:
+                    # 두 골반의 평균 높이를 허리선으로 잡음 + 약간의 여유(10px)
+                    hip_y = int(sum(hips) / len(hips)) + 10
+                else:
+                    # 골반이 안 보인다? = 상반신 클로즈업 사진일 확률 높음
+                    # 이 경우 하단부를 자르지 않고 끝까지(100%) 옷으로 간주
+                    hip_y = h
+            
+            # ---------------------------------------------------------
+            # 🎨 마스킹 그리기 (검은색=보호 / 흰색=변경)
+            # ---------------------------------------------------------
+            
+            # A. 머리 보호 로직
+            # 코(Nose)와 어깨(Shoulder) 사이의 목 찾기
+            head_limit = 0  # 기본값
+
+            if pose_results and pose_results[0].keypoints is not None:
+                keypoints = pose_results[0].keypoints.xy.cpu().numpy()[0]
+                
+                # Keypoint Index: 0=코, 5=왼쪽 어깨, 6=오른쪽 어깨
+                nose = keypoints[0]
+                left_shoulder = keypoints[5]
+                right_shoulder = keypoints[6]
+                
+                # 1. 어깨 높이 평균 계산
+                shoulder_y = 0
+                if left_shoulder[1] > 0 and right_shoulder[1] > 0:
+                    shoulder_y = (left_shoulder[1] + right_shoulder[1]) / 2
+                elif left_shoulder[1] > 0: shoulder_y = left_shoulder[1]
+                elif right_shoulder[1] > 0: shoulder_y = right_shoulder[1]
+                
+                # 2. 코(Nose) 좌표가 있으면 -> "코와 어깨의 정중앙"을 자르는 선으로 설정
+                if nose[1] > 0 and shoulder_y > 0:
+                    # 코와 어깨 사이(목)의 중간 지점
+                    head_limit = (nose[1] + shoulder_y) / 2
+                    
+                # 3. 코를 못 찾았으면(뒷모습 등) -> 어깨 너비를 기준으로 비례해서 위로 올림
+                elif shoulder_y > 0:
+                    # 어깨 너비 계산 (좌우 어깨가 다 있을 때)
+                    if left_shoulder[0] > 0 and right_shoulder[0] > 0:
+                        width = abs(left_shoulder[0] - right_shoulder[0])
+                        # 어깨 너비의 50%만큼 위로 올리면 대략 목~머리 경계
+                        head_limit = shoulder_y - (width * 0.5)
+                    else:
+                        # 어깨 너비도 모르면 기존 방식(박스 기준) Fallback
+                        if person_box is not None:
+                            head_limit = person_box[1] + ((person_box[3] - person_box[1]) * 0.13)
+            
+            # 안전장치: 혹시 계산된 라인이 0보다 작으면 0으로
+            head_limit = max(0, int(head_limit))
+            
+            # 검은색 보호 영역 그리기
+            draw.rectangle([(0, 0), (w, head_limit)], fill=0)
+
+            # B. 상의/하의 영역 분리 (Pose 기반)
+            if target == "upper":
+                # 상의 피팅 -> 골반(hip_y) 아래쪽을 검은색으로 칠해서 하체 보호
+                # 단, hip_y가 이미지 끝(h)이면 하체가 없는 것이므로 칠하지 않음
+                if hip_y < h:
+                    draw.rectangle([(0, hip_y), (w, h)], fill=0)
+
+            elif target == "lower":
+                # 하의 피팅 -> 골반(hip_y) 위쪽을 검은색으로 칠해서 상체 보호
+                # (머리 보호 라인보다는 아래여야 함)
+                start_y = max(int(head_limit), 0) if person_box is not None else 0
+                draw.rectangle([(0, start_y), (w, hip_y)], fill=0)
+            elif target == "full":
+                # 드레스/전신 -> 머리만 보호하고 나머지는 유지
+                pass
+            
+            return final_mask
+        
+        except Exception as e:
+            logger.error(f"❌ Mask generation failed: {e}")
+            return None
 
 yolo_detector = YOLOFashionDetector()
