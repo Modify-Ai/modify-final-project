@@ -4,6 +4,8 @@ import {
   Search as SearchIcon,
   Mic,
   X,
+  Plus,
+  Minus,
   Sparkles,
   TrendingUp,
   Image as ImageIcon,
@@ -84,6 +86,8 @@ export default function Search() {
 
   const [query, setQuery] = useState(queryTextFromUrl);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [negativePrompt, setNegativePrompt] = useState<string>("");
+  const [showNegativePrompt, setShowNegativePrompt] = useState(false);
   const [results, setResults] = useState<ProductResponse[]>([]);
 
   // AI 분석 상태
@@ -179,7 +183,8 @@ export default function Search() {
     async (
       currentQuery: string,
       currentImage: File | null,
-      isVoice: boolean = false
+      isVoice: boolean = false,
+      currentNegativePrompt?: string
     ) => {
       if (!currentQuery && !currentImage) return;
 
@@ -200,6 +205,10 @@ export default function Search() {
       formData.append("query", currentQuery);
       if (currentImage) formData.append("image_file", currentImage);
       formData.append("limit", "12");
+
+      // negativePrompt를 파라미터로 받거나 현재 상태값 사용
+      const negPrompt = currentNegativePrompt !== undefined ? currentNegativePrompt : negativePrompt;
+      if (negPrompt.trim()) formData.append("negative_prompt", negPrompt.trim());
 
       try {
         const response = await client.post<SearchResult>(
@@ -308,14 +317,14 @@ export default function Search() {
     recognition.onresult = (event: any) => {
       const transcript = event.results[0][0].transcript;
       setQuery(transcript);
-      handleSearch(transcript, imageFile, true);
+      handleSearch(transcript, imageFile, true, negativePrompt);
     };
     recognition.start();
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    handleSearch(query, imageFile, false);
+    handleSearch(query, imageFile, false, negativePrompt);
   };
 
   const previewUrl = imageFile ? URL.createObjectURL(imageFile) : null;
@@ -323,7 +332,7 @@ export default function Search() {
   useEffect(() => {
     if (queryTextFromUrl) {
       setQuery(queryTextFromUrl);
-      handleSearch(queryTextFromUrl, null, false);
+      handleSearch(queryTextFromUrl, null, false, "");
     }
   }, [queryTextFromUrl, handleSearch]);
 
@@ -431,6 +440,58 @@ export default function Search() {
             )}
           </div>
         </form>
+
+        {/* 🚫 네거티브 프롬프트 입력란 */}
+        <div className="mt-4 animate-in slide-in-from-top-2 fade-in">
+          <button
+            type="button"
+            onClick={() => setShowNegativePrompt(!showNegativePrompt)}
+            className="text-sm text-gray-500 hover:text-purple-600 dark:text-gray-400 dark:hover:text-purple-400 flex items-center gap-2 mb-2 transition-colors"
+          >
+            {showNegativePrompt ? (
+              <Minus className="w-4 h-4 transition-all" />
+            ) : (
+              <Plus className="w-4 h-4 transition-all" />
+            )}
+            {showNegativePrompt ? '네거티브 프롬프트 숨기기' : '원하지 않는 스타일 제외하기'}
+          </button>
+
+          {showNegativePrompt && (
+            <div className="bg-white dark:bg-gray-900 rounded-xl p-4 border border-gray-200 dark:border-gray-800 shadow-sm animate-in slide-in-from-top-2 fade-in">
+              <div className="flex items-start gap-3">
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
+                    제외할 키워드 (쉼표로 구분)
+                  </label>
+                  <input
+                    type="text"
+                    value={negativePrompt}
+                    onChange={(e) => setNegativePrompt(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && query) {
+                        handleSearch(query, imageFile, false, negativePrompt);
+                      }
+                    }}
+                    placeholder="예: 청바지, 스니커즈, 캐주얼"
+                    className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+                  />
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+                    💡 입력한 키워드가 포함된 상품은 검색 결과에서 제외됩니다
+                  </p>
+                </div>
+                {negativePrompt && (
+                  <button
+                    type="button"
+                    onClick={() => setNegativePrompt("")}
+                    className="mt-6 p-2 text-gray-400 hover:text-red-500 transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </header>
 
       {/* 🟠 [Loading] 스테퍼 디자인 변경 (Orange -> Violet) */}
