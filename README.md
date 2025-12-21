@@ -87,11 +87,33 @@ docker-compose -f docker-compose.dev.yml down
 
 ---
 
-## DB 테이블 수정사항 
+## ✨ 주요 기능 (Key Features)
+
+### 🛒 주문 및 결제 시스템
+- **주문 내역 관리**: 사용자별 주문 내역 조회 및 관리
+- **주문 상태 추적**: 결제 대기, 결제 완료, 배송 중, 배송 완료, 취소 상태 관리
+- **주문 취소**: 결제 대기 상태의 주문 취소 기능
+- **상세 배송 정보**: 수령인 정보, 배송 주소, 배송 메모 관리
+
+### 🔍 AI 기반 스마트 검색
+- **하이브리드 검색 엔진**: BERT(텍스트) + CLIP(이미지) 듀얼 모델 결합
+- **네거티브 프롬프트**: 원하지 않는 스타일 제외 검색 지원
+- **멀티모달 검색**: 텍스트와 이미지를 동시에 활용한 정교한 검색
+
+### 👤 사용자 관리
+- **회원가입/로그인**: JWT 기반 인증 시스템
+- **위시리스트**: 관심 상품 저장 및 관리
+- **프로필 관리**: 개인정보 및 배송지 관리
+
+---
+
+## DB 테이블 수정사항
 ```bash
 
 -- 1. 트랜잭션 시작 및 기존 테이블 정리
 BEGIN;
+DROP TABLE IF EXISTS order_items CASCADE;
+DROP TABLE IF EXISTS orders CASCADE;
 DROP TABLE IF EXISTS wishlists CASCADE;
 DROP TABLE IF EXISTS products CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
@@ -151,7 +173,41 @@ CREATE TABLE wishlists (
     CONSTRAINT uq_wishlist_user_product UNIQUE (user_id, product_id)
 );
 
--- 6. fitting_results 테이블 생성
+-- 6. Orders 테이블 생성 (주문 정보)
+CREATE TABLE orders (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    order_number VARCHAR(50) UNIQUE NOT NULL,
+    total_amount INTEGER NOT NULL,
+    status VARCHAR(50) DEFAULT 'pending' NOT NULL,
+    payment_status VARCHAR(50) DEFAULT 'pending' NOT NULL,
+    recipient_name VARCHAR(100) NOT NULL,
+    recipient_phone VARCHAR(20) NOT NULL,
+    zip_code VARCHAR(10) NOT NULL,
+    address VARCHAR(200) NOT NULL,
+    detail_address VARCHAR(200),
+    delivery_memo TEXT,
+    payment_method VARCHAR(50),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX ix_orders_id ON orders (id);
+CREATE INDEX ix_orders_order_number ON orders (order_number);
+
+-- 7. Order Items 테이블 생성 (주문 상품 정보)
+CREATE TABLE order_items (
+    id SERIAL PRIMARY KEY,
+    order_id INTEGER NOT NULL REFERENCES orders(id),
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    product_name VARCHAR(200) NOT NULL,
+    product_price INTEGER NOT NULL,
+    product_image_url VARCHAR(500),
+    quantity INTEGER DEFAULT 1 NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX ix_order_items_id ON order_items (id);
+
+-- 8. fitting_results 테이블 생성
 CREATE TABLE fitting_results (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id),
@@ -161,5 +217,5 @@ CREATE TABLE fitting_results (
 );
 CREATE INDEX ix_fitting_results_id ON fitting_results (id);
 
--- 7. 변경사항 확정
+-- 9. 변경사항 확정
 COMMIT;

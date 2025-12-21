@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import axios from "axios";
 import {
   ArrowLeft,
   CreditCard,
@@ -239,16 +240,54 @@ export default function Checkout() {
     }
     setIsProcessing(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      const newOrderId = `ORD-${Date.now()}-${Math.random()
-        .toString(36)
-        .substr(2, 9)
-        .toUpperCase()}`;
-      setOrderId(newOrderId);
+      // zustand persist에서 토큰 가져오기
+      const authStorage = localStorage.getItem("auth-storage");
+      const token = authStorage ? JSON.parse(authStorage).state.token : null;
+
+      if (!token) {
+        alert("로그인이 필요합니다. 다시 로그인해주세요.");
+        navigate("/login");
+        return;
+      }
+
+      const API_URL = import.meta.env.VITE_API_URL || "http://localhost";
+
+      // 주문 데이터 생성
+      const orderData = {
+        recipient_name: shippingInfo.name,
+        recipient_phone: shippingInfo.phone,
+        zip_code: shippingInfo.zipCode,
+        address: shippingInfo.address,
+        detail_address: shippingInfo.addressDetail,
+        delivery_memo: shippingInfo.memo,
+        payment_method: paymentMethod,
+        order_items: cartItems.map((item) => ({
+          product_id: item.id,
+          product_name: item.name,
+          product_price: item.price,
+          product_image_url: item.image_url,
+          quantity: item.quantity,
+        })),
+      };
+
+      // 백엔드 API로 주문 생성
+      const response = await axios.post(
+        `${API_URL}/api/v1/orders/`,
+        orderData,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      setOrderId(response.data.order_number);
       if (!location.state?.directBuy) localStorage.removeItem("cart");
       setOrderComplete(true);
-    } catch (error) {
-      alert("결제 처리 중 오류가 발생했습니다.");
+    } catch (error: any) {
+      console.error("Order creation failed:", error);
+      alert(
+        error.response?.data?.detail ||
+          "결제 처리 중 오류가 발생했습니다."
+      );
     } finally {
       setIsProcessing(false);
     }
@@ -306,7 +345,7 @@ export default function Checkout() {
               쇼핑 계속하기
             </button>
             <button
-              onClick={() => navigate("/profile")}
+              onClick={() => navigate("/orders")}
               className="w-full py-4 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition-colors"
             >
               주문 내역 보기

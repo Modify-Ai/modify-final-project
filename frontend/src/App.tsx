@@ -13,6 +13,7 @@ import Profile from "@/pages/Profile";
 import Settings from "@/pages/Settings";
 import Account from "@/pages/Account"; // ✅ [추가됨] 계정 정보 수정 페이지
 import VirtualFitting from '@/pages/VirtualFitting';
+import OrderHistory from "@/pages/OrderHistory"; // ✅ [추가됨] 주문 내역 페이지
 
 // ✅ 장바구니 & 결제 페이지
 import Cart from "@/pages/Cart";
@@ -62,6 +63,9 @@ export default function App() {
               {/* 장바구니 & 결제 */}
               <Route path="/cart" element={<Cart />} />
               <Route path="/checkout" element={<Checkout />} />
+
+              {/* 주문 내역 */}
+              <Route path="/orders" element={<OrderHistory />} />
 
               {/* ✨ [Admin] 관리자 전용 라우트 (보호됨) */}
               <Route element={<AdminRoute />}>

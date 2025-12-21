@@ -9,7 +9,8 @@ from src.api.v1.endpoints import (
     search,
     wishlist,
     fitting,
-    upload
+    upload,
+    orders
 )
 
 api_router = APIRouter()
@@ -36,3 +37,6 @@ api_router.include_router(upload.router, prefix="/utils", tags=["utils"])
 
 # 7. [NEW] 가상 피팅 기능
 api_router.include_router(fitting.router, prefix="/fitting", tags=["fitting"])
+
+# 8. [NEW] 주문 관리
+api_router.include_router(orders.router, prefix="/orders", tags=["orders"])

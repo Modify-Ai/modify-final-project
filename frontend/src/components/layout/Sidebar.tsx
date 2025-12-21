@@ -11,6 +11,7 @@ import {
   Moon,
   LogOut,
   Heart, // ✅ [추가] 하트 아이콘
+  ShoppingBag, // ✅ [추가] 주문내역 아이콘
 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { useSearchStore } from "@/store/searchStore";
@@ -167,6 +168,28 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                   </div>
                   <span className="font-bold text-gray-700 dark:text-gray-200">
                     위시리스트
+                  </span>
+                </div>
+                <ChevronRight
+                  size={16}
+                  className="text-gray-300 group-hover:text-gray-500"
+                />
+              </button>
+
+              {/* 📦 주문내역 버튼 */}
+              <button
+                onClick={() => {
+                  navigate("/orders");
+                  onClose();
+                }}
+                className="w-full flex items-center justify-between p-3 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl hover:shadow-md transition-all group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-purple-50 dark:bg-purple-900/20 text-purple-500 flex items-center justify-center group-hover:bg-purple-100 dark:group-hover:bg-purple-900/40">
+                    <ShoppingBag size={16} />
+                  </div>
+                  <span className="font-bold text-gray-700 dark:text-gray-200">
+                    주문내역
                   </span>
                 </div>
                 <ChevronRight
