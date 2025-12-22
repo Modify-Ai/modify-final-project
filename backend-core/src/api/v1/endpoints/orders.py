@@ -1,9 +1,9 @@
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func
 from sqlalchemy.orm import selectinload
-from datetime import datetime
+from datetime import datetime, timedelta
 import uuid
 
 from src.api.deps import get_db, get_current_user
@@ -12,6 +12,14 @@ from src.models.order import Order, OrderItem
 from src.schemas.order import OrderCreate, OrderResponse, OrderListResponse
 
 router = APIRouter()
+
+def check_superuser(current_user: User = Depends(get_current_user)) -> User:
+    if not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="관리자 권한이 필요합니다."
+        )
+    return current_user
 
 
 def generate_order_number() -> str:
@@ -96,6 +104,129 @@ async def get_my_orders(
 
     return orders
 
+
+# =========================================================
+# 관리자용 주문 관리 API
+# =========================================================
+
+@router.get("/admin", response_model=dict)
+async def get_all_orders_admin(
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    status_filter: Optional[str] = Query(None, description="주문 상태 필터"),
+    start_date: Optional[str] = Query(None, description="시작 날짜 (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="종료 날짜 (YYYY-MM-DD)"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(check_superuser),
+):
+    """관리자용 전체 주문 목록 조회"""
+    offset = (page - 1) * limit
+
+    # 전체 주문 수 조회
+    count_query = select(func.count(Order.id))
+    if status_filter:
+        count_query = count_query.where(Order.status == status_filter)
+    if start_date:
+        start_datetime = datetime.fromisoformat(start_date)
+        count_query = count_query.where(Order.created_at >= start_datetime)
+    if end_date:
+        # 종료 날짜는 해당 날짜의 23:59:59까지 포함
+        end_datetime = datetime.fromisoformat(end_date) + timedelta(days=1)
+        count_query = count_query.where(Order.created_at < end_datetime)
+
+    total_result = await db.execute(count_query)
+    total = total_result.scalar_one()
+
+    # 주문 목록 조회 (user도 함께 로드)
+    query = select(Order).options(
+        selectinload(Order.order_items),
+        selectinload(Order.user)
+    )
+    if status_filter:
+        query = query.where(Order.status == status_filter)
+    if start_date:
+        start_datetime = datetime.fromisoformat(start_date)
+        query = query.where(Order.created_at >= start_datetime)
+    if end_date:
+        end_datetime = datetime.fromisoformat(end_date) + timedelta(days=1)
+        query = query.where(Order.created_at < end_datetime)
+
+    query = query.order_by(desc(Order.created_at)).offset(offset).limit(limit)
+
+    result = await db.execute(query)
+    orders = result.scalars().all()
+
+    # OrderListResponse로 변환하면서 user_name과 first_item_name 추가
+    order_list = []
+    for order in orders:
+        order_dict = OrderListResponse.model_validate(order).model_dump()
+        order_dict["user_name"] = order.user.full_name if order.user else None
+        order_dict["user_email"] = order.user.email if order.user else None
+        order_dict["first_item_name"] = order.order_items[0].product_name if order.order_items else None
+        order_dict["item_count"] = len(order.order_items)
+        order_list.append(order_dict)
+
+    # 통계 계산 (취소된 주문 제외)
+    from sqlalchemy import case as sql_case
+    stats_query = select(
+        func.sum(sql_case((Order.status != 'cancelled', Order.total_amount), else_=0)).label('total_revenue'),
+        func.count(Order.id).label('total_orders'),
+        func.avg(sql_case((Order.status != 'cancelled', Order.total_amount), else_=None)).label('avg_order'),
+        func.sum(sql_case((Order.status == 'pending', 1), else_=0)).label('pending')
+    )
+    stats_result = await db.execute(stats_query)
+    stats_row = stats_result.one()
+
+    return {
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "orders": order_list,
+        "stats": {
+            "total_revenue": int(stats_row.total_revenue) if stats_row.total_revenue else 0,
+            "total_orders": stats_row.total_orders or 0,
+            "avg_order": int(stats_row.avg_order) if stats_row.avg_order else 0,
+            "pending": stats_row.pending or 0
+        }
+    }
+
+
+@router.patch("/admin/{order_id}/status", response_model=OrderResponse)
+async def update_order_status_admin(
+    order_id: int,
+    status_data: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(check_superuser),
+):
+    """관리자용 주문 상태 업데이트"""
+    new_status = status_data.get("status")
+    if not new_status:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="status 필드가 필요합니다."
+        )
+
+    result = await db.execute(
+        select(Order).options(selectinload(Order.order_items)).where(Order.id == order_id)
+    )
+    order = result.scalar_one_or_none()
+
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="주문을 찾을 수 없습니다."
+        )
+
+    order.status = new_status
+    await db.commit()
+    await db.refresh(order)
+
+    return order
+
+
+# =========================================================
+# 일반 사용자용 주문 조회 및 관리
+# =========================================================
 
 @router.get("/{order_id}", response_model=OrderResponse)
 async def get_order_detail(

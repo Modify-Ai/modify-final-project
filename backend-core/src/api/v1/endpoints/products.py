@@ -4,6 +4,7 @@ import io
 import shutil
 import os
 import uuid
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -342,6 +343,181 @@ async def create_product(
     product = await crud_product.create(db, obj_in=product_data)
     return product
 
+# =========================================================
+# 관리자용 상품 관리 API
+# =========================================================
+from sqlalchemy import select as sql_select, func as sql_func, desc as sql_desc, case as sql_case
+from src.models.product import Product
+
+@router.get("/admin/list", response_model=dict)
+async def get_products_admin(
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    category: Optional[str] = Query(None, description="카테고리 필터"),
+    is_active: Optional[bool] = Query(None, description="활성화 상태 필터"),
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+):
+    """관리자용 상품 목록 조회"""
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다.")
+
+    offset = (page - 1) * limit
+
+    # 전체 상품 수 조회
+    count_query = sql_select(sql_func.count(Product.id)).where(Product.deleted_at == None)
+    if category:
+        count_query = count_query.where(Product.category == category)
+    if is_active is not None:
+        count_query = count_query.where(Product.is_active == is_active)
+
+    total_result = await db.execute(count_query)
+    total = total_result.scalar_one()
+
+    # 상품 목록 조회
+    query = sql_select(Product).where(Product.deleted_at == None)
+    if category:
+        query = query.where(Product.category == category)
+    if is_active is not None:
+        query = query.where(Product.is_active == is_active)
+    query = query.order_by(sql_desc(Product.created_at)).offset(offset).limit(limit)
+
+    result = await db.execute(query)
+    products = result.scalars().all()
+
+    # 통계 계산 (삭제되지 않은 상품 기준)
+    stats_query = sql_select(
+        sql_func.count(Product.id).label('total'),
+        sql_func.sum(sql_case((Product.stock_quantity > 0, 1), else_=0)).label('selling'),
+        sql_func.sum(sql_case((Product.stock_quantity == 0, 1), else_=0)).label('soldout'),
+        sql_func.avg(Product.price).label('avg_price')
+    ).where(Product.deleted_at == None)
+    stats_result = await db.execute(stats_query)
+    stats_row = stats_result.one()
+
+    return {
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "products": [ProductResponse.model_validate(p) for p in products],
+        "stats": {
+            "total": stats_row.total or 0,
+            "selling": stats_row.selling or 0,
+            "soldout": stats_row.soldout or 0,
+            "avg_price": int(stats_row.avg_price) if stats_row.avg_price else 0
+        }
+    }
+
+
+@router.patch("/admin/{product_id}", response_model=ProductResponse)
+async def update_product_admin(
+    product_id: int,
+    product_data: ProductCreate,
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+):
+    """관리자용 상품 정보 업데이트"""
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다.")
+
+    product = await crud_product.get(db, product_id=product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
+
+    updated_product = await crud_product.update(db, db_obj=product, obj_in=product_data.model_dump(exclude_unset=True))
+    return ProductResponse.model_validate(updated_product)
+
+
+@router.delete("/admin/{product_id}")
+async def delete_product_admin(
+    product_id: int,
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+):
+    """관리자용 상품 삭제 (소프트 삭제)"""
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다.")
+
+    product = await crud_product.get(db, product_id=product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
+
+    # 소프트 삭제
+    from datetime import datetime
+    product.deleted_at = datetime.now()
+    await db.commit()
+
+    return {"message": "상품이 삭제되었습니다.", "product_id": product_id}
+
+# =========================================================
+# 일반 상품 조회 및 AI 기능
+# =========================================================
+
+@router.get("/", response_model=dict)
+async def get_products(
+    page: int = Query(1, ge=1),
+    limit: int = Query(12, ge=1, le=100),
+    category: Optional[str] = Query(None, description="카테고리 필터"),
+    search: Optional[str] = Query(None, description="상품명 검색"),
+    db: AsyncSession = Depends(deps.get_db),
+):
+    """일반 사용자용 상품 목록 조회 (활성화된 상품만)"""
+    offset = (page - 1) * limit
+
+    # 전체 상품 수 조회 (활성화된 상품만)
+    count_query = sql_select(sql_func.count(Product.id)).where(
+        Product.deleted_at == None,
+        Product.is_active == True
+    )
+    if category:
+        count_query = count_query.where(Product.category == category)
+    if search:
+        count_query = count_query.where(Product.name.ilike(f"%{search}%"))
+
+    total_result = await db.execute(count_query)
+    total = total_result.scalar_one()
+
+    # 상품 목록 조회 (활성화된 상품만)
+    query = sql_select(Product).where(
+        Product.deleted_at == None,
+        Product.is_active == True
+    )
+    if category:
+        query = query.where(Product.category == category)
+    if search:
+        query = query.where(Product.name.ilike(f"%{search}%"))
+    query = query.order_by(sql_desc(Product.created_at)).offset(offset).limit(limit)
+
+    result = await db.execute(query)
+    products = result.scalars().all()
+
+    # 통계 계산 (활성화된 상품 기준)
+    stats_query = sql_select(
+        sql_func.count(Product.id).label('total'),
+        sql_func.sum(sql_case((Product.stock_quantity > 0, 1), else_=0)).label('selling'),
+        sql_func.sum(sql_case((Product.stock_quantity == 0, 1), else_=0)).label('soldout'),
+        sql_func.avg(Product.price).label('avg_price')
+    ).where(
+        Product.deleted_at == None,
+        Product.is_active == True
+    )
+    stats_result = await db.execute(stats_query)
+    stats_row = stats_result.one()
+
+    return {
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "products": [ProductResponse.model_validate(p) for p in products],
+        "stats": {
+            "total": stats_row.total or 0,
+            "selling": stats_row.selling or 0,
+            "soldout": stats_row.soldout or 0,
+            "avg_price": int(stats_row.avg_price) if stats_row.avg_price else 0
+        }
+    }
+
+
 @router.get("/{product_id}", response_model=ProductResponse)
 async def read_product(
     product_id: int,
@@ -350,9 +526,31 @@ async def read_product(
     product = await crud_product.get(db, product_id=product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    
+
     product = await _heal_product_embedding(db, product)
     return product
+
+
+@router.delete("/{product_id}")
+async def delete_product(
+    product_id: int,
+    db: AsyncSession = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+):
+    """상품 삭제 (관리자 전용 - 소프트 삭제)"""
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다.")
+
+    product = await crud_product.get(db, product_id=product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
+
+    # 소프트 삭제
+    product.deleted_at = datetime.now()
+    await db.commit()
+
+    return {"message": "상품이 삭제되었습니다.", "product_id": product_id}
+
 
 @router.post("/{product_id}/llm-query", response_model=Dict[str, str])
 async def llm_query_product(
