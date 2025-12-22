@@ -38,3 +38,4 @@ htmlcov/
 
 # Uploaded Images
 backend-core/src/static/images/
+ai-service/static/
