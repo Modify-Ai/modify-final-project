@@ -52,7 +52,7 @@ export default function Settings() {
     setUser({ ...user, is_marketing_agreed: newState });
 
     try {
-      await client.patch('/api/v1/users/me', {
+      await client.patch('/users/me', {
         is_marketing_agreed: newState
       });
       console.log('Marketing consent updated:', newState);

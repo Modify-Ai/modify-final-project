@@ -12,6 +12,9 @@ from pgvector.sqlalchemy import Vector # pgvector 타입 인식
 from src.db.session import Base
 from src.models.product import Product
 from src.models.user import User
+from src.models.fitting import FittingResult
+from src.models.wishlist import Wishlist
+from src.models.order import Order, OrderItem
 from src.config.settings import settings
 
 config = context.config

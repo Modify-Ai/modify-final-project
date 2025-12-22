@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Menu, ShoppingBag, ChevronRight } from "lucide-react"; // 아이콘 (설정, 로그아웃 아이콘은 제거하여 심플하게)
+import { Menu, Camera, ShoppingBag, ChevronRight } from "lucide-react"; // 아이콘 (설정, 로그아웃 아이콘은 제거하여 심플하게)
 import { Link, useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/store/authStore"; // 유저 상태 관리
 
@@ -72,8 +72,17 @@ export default function Header({ onMenuClick }: HeaderProps) {
           </Link>
         </div>
 
-        {/* 2. 오른쪽 영역: 장바구니 + 프로필 */}
+        {/* 2. 오른쪽 영역: 가상 피팅 + 장바구니 + 프로필 */}
         <div className="flex items-center gap-3">
+
+          {/* 가상 피팅 아이콘 (항상 보임) */}
+          <Link 
+            to="/virtual-fitting" 
+            className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors relative"
+          >
+            <Camera size={24} />
+          </Link>
+
           {/* 장바구니 아이콘 (항상 보임) */}
           <Link
             to="/cart"

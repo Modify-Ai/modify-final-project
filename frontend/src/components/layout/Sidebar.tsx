@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   X,
@@ -10,10 +10,15 @@ import {
   Sun,
   Moon,
   LogOut,
+  Heart, // ✅ [추가] 하트 아이콘
+  ShoppingBag, // ✅ [추가] 주문내역 아이콘
 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
 import { useSearchStore } from "@/store/searchStore";
 import { useUIStore } from "@/store/uiStore";
+
+// ✅ [추가] 위시리스트 모달 불러오기
+import WishlistModal from "@/components/product/WishlistModal";
 
 // ✅ [1] 로고 이미지 불러오기 (경로가 정확한지 꼭 확인!)
 import logoModifyColor from "@/assets/images/logo-modify-color.png";
@@ -27,6 +32,9 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
   const { isDarkMode, toggleDarkMode } = useUIStore();
+
+  // ✅ [추가] 위시리스트 모달 상태 관리
+  const [isWishlistOpen, setIsWishlistOpen] = useState(false);
 
   // 검색 기록과 즐겨찾기 데이터를 가져옵니다.
   const {
@@ -141,13 +149,62 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
           )}
         </div>
 
-        {/* 2. 메인 컨텐츠 (즐겨찾기 & 최근 검색) */}
+        {/* 2. 메인 컨텐츠 (My Menu, 즐겨찾기, 최근 검색) */}
         <div className="flex-1 overflow-y-auto p-6 space-y-8 scrollbar-hide">
-          {/* ⭐ 즐겨찾기 섹션 */}
+          {/* ✨ [NEW] My Menu 섹션 (위시리스트 버튼) */}
+          <section>
+            <h3 className="text-xs font-bold text-gray-400 mb-3 uppercase tracking-wider ml-1">
+              My Menu
+            </h3>
+            <div className="space-y-2">
+              {/* 💖 위시리스트 버튼 */}
+              <button
+                onClick={() => setIsWishlistOpen(true)} // 모달 열기!
+                className="w-full flex items-center justify-between p-3 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl hover:shadow-md transition-all group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-red-50 dark:bg-red-900/20 text-red-500 flex items-center justify-center group-hover:bg-red-100 dark:group-hover:bg-red-900/40">
+                    <Heart size={16} fill="currentColor" />
+                  </div>
+                  <span className="font-bold text-gray-700 dark:text-gray-200">
+                    위시리스트
+                  </span>
+                </div>
+                <ChevronRight
+                  size={16}
+                  className="text-gray-300 group-hover:text-gray-500"
+                />
+              </button>
+
+              {/* 📦 주문내역 버튼 */}
+              <button
+                onClick={() => {
+                  navigate("/orders");
+                  onClose();
+                }}
+                className="w-full flex items-center justify-between p-3 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl hover:shadow-md transition-all group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-purple-50 dark:bg-purple-900/20 text-purple-500 flex items-center justify-center group-hover:bg-purple-100 dark:group-hover:bg-purple-900/40">
+                    <ShoppingBag size={16} />
+                  </div>
+                  <span className="font-bold text-gray-700 dark:text-gray-200">
+                    주문내역
+                  </span>
+                </div>
+                <ChevronRight
+                  size={16}
+                  className="text-gray-300 group-hover:text-gray-500"
+                />
+              </button>
+            </div>
+          </section>
+
+          {/* ⭐ 즐겨찾기 섹션 (검색어) */}
           <div>
             <h3 className="flex items-center gap-2 text-sm font-bold text-gray-800 dark:text-gray-200 mb-3">
               <Star size={16} className="text-orange-500 fill-orange-500" />
-              즐겨찾기
+              즐겨찾는 검색어
             </h3>
             {favorites.length === 0 ? (
               <p className="text-xs text-gray-400 dark:text-gray-600 py-2">
@@ -282,6 +339,12 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
           </div>
         </div>
       </div>
+
+      {/* ✅ [추가] 사이드바 밖에 위시리스트 모달 배치 */}
+      <WishlistModal
+        isOpen={isWishlistOpen}
+        onClose={() => setIsWishlistOpen(false)}
+      />
     </>
   );
 }

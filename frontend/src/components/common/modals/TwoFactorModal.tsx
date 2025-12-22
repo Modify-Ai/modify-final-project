@@ -36,7 +36,7 @@ export default function TwoFactorModal({ isOpen, onClose }: TwoFactorModalProps)
               <div>
                 <h4 className="text-xl font-bold text-gray-900 dark:text-white mb-2">계정을 더 안전하게 보호하세요</h4>
                 <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
-                  Google OTP 또는 Authy 앱을 사용하여<br/>
+                  Google OTP 또는 카카오톡 앱을 사용하여<br/>
                   로그인 시 추가 인증 코드를 입력하게 됩니다.
                 </p>
               </div>

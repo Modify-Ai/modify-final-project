@@ -1,4 +1,5 @@
 from sqlalchemy import Boolean, Column, Integer, String, DateTime
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from src.db.session import Base
 
@@ -18,10 +19,11 @@ class User(Base):
     phone_number = Column(String, nullable=True)
     address = Column(String, nullable=True)
     zip_code = Column(String, nullable=True)   # 👈 추가됨
+    detail_address = Column(String, nullable=True)  # 👈 추가됨
     birthdate = Column(String, nullable=True)
     gender = Column(String, nullable=True)     # 👈 추가됨
-    location = Column(String, nullable=True)
     is_marketing_agreed = Column(Boolean(), default=False)
+    is_phone_verified = Column(Boolean(), default=False)    # 👈 추가됨
 
     # [✅ 소셜 로그인/프로필 - 에러 원인 해결]
     profile_image = Column(String, nullable=True)
@@ -30,3 +32,6 @@ class User(Base):
     # [타임스탬프]
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
+
+    fitting_results = relationship("FittingResult", back_populates="user", cascade="all, delete-orphan")
+    orders = relationship("Order", back_populates="user", cascade="all, delete-orphan")

@@ -103,6 +103,52 @@ async def fetch_image_as_base64(url: str) -> Optional[str]:
         logger.warning(f"⚠️ Failed to proxy image ({url}): {e}")
     return None
 
+def filter_by_negative_prompt(products: List[Any], negative_prompt: Optional[str]) -> List[Any]:
+    """
+    네거티브 프롬프트로 상품 필터링
+
+    Args:
+        products: 필터링할 상품 리스트
+        negative_prompt: 제외할 키워드 (쉼표로 구분)
+
+    Returns:
+        필터링된 상품 리스트
+    """
+    if not negative_prompt or not negative_prompt.strip():
+        return products
+
+    # 네거티브 키워드 파싱 (쉼표로 구분, 공백 제거, 소문자 변환)
+    negative_keywords = [
+        kw.strip().lower()
+        for kw in negative_prompt.split(',')
+        if kw.strip()
+    ]
+
+    if not negative_keywords:
+        return products
+
+    logger.info(f"🚫 Negative keywords: {negative_keywords}")
+
+    # 필터링 로직
+    filtered_products = []
+    for product in products:
+        # 상품 텍스트 결합 (이름, 설명, 카테고리)
+        searchable_text = " ".join([
+            (product.name or "").lower(),
+            (product.description or "").lower(),
+            (product.category or "").lower()
+        ])
+
+        # 네거티브 키워드가 하나라도 포함되면 제외
+        if any(keyword in searchable_text for keyword in negative_keywords):
+            logger.debug(f"🚫 Filtered out: {product.name} (matched negative keyword)")
+            continue
+
+        filtered_products.append(product)
+
+    logger.info(f"✅ Negative filtering: {len(products)} → {len(filtered_products)} products")
+    return filtered_products
+
 
 # ✅ [NEW] Response 매핑 헬퍼 함수
 def map_product_to_response(product) -> Optional[ProductResponse]:
@@ -262,15 +308,17 @@ async def ai_search(
     query: str = Form(..., description="사용자 검색 쿼리"),
     image_file: Optional[UploadFile] = File(None),
     limit: int = Form(12),
+    negative_prompt: Optional[str] = Form(None, description="제외할 키워드 (쉼표로 구분)"),
     db: AsyncSession = Depends(deps.get_db),
 ) -> Any:
     """
-    [Upgraded v2] 스마트 하이브리드 검색
+    [Upgraded v3] 스마트 하이브리드 검색 (네거티브 프롬프트 지원)
     1. 텍스트/이미지 입력 -> AI 서비스로 경로(Internal/External) 판단
     2. EXTERNAL: 외부 이미지/트렌드 분석 -> CLIP 벡터 생성 -> 시각적 유사도 상품 검색
     3. INTERNAL: 핵심 키워드 + BERT/CLIP 벡터 -> 하이브리드 검색
+    4. 네거티브 프롬프트: 원하지 않는 스타일 제외 (후처리 필터링)
     """
-    logger.info(f"🔍 AI Search Request: '{query}' (Image: {image_file is not None})")
+    logger.info(f"🔍 AI Search Request: '{query}' (Image: {image_file is not None}, Negative: {negative_prompt})")
 
     # 1. 의도 및 정보 추출
     target_gender = detect_gender_intent(query)
@@ -367,17 +415,20 @@ async def ai_search(
     # 4. 🌟 검색 실행 - DB 조회
     results = []
     gender_filtered = True  # 성별 필터 적용 여부 추적
-    
+
+    # 네거티브 프롬프트가 있으면 더 많은 후보 검색 (limit × 2)
+    search_limit = limit * 2 if negative_prompt else limit
+
     try:
         # Case A: EXTERNAL 경로이면서 CLIP 벡터가 있는 경우 (핵심 기능!)
         if search_path == "EXTERNAL" and clip_vec and len(clip_vec) == 512:
             logger.info(f"🖼️ Using CLIP image vector search (512-dim)")
-            
+
             # CLIP 이미지 벡터로 시각적 유사도 검색
             results = await crud_product.search_by_clip_vector(
                 db,
                 clip_vector=clip_vec,
-                limit=limit,
+                limit=search_limit,
                 filter_gender=target_gender
             )
             
@@ -391,11 +442,11 @@ async def ai_search(
                     results = await crud_product.search_hybrid(
                         db,
                         bert_vector=bert_vec,
-                        limit=limit,
+                        limit=search_limit,
                         filter_gender=target_gender
                     )
                     search_strategy = "BERT_FALLBACK"
-        
+
         # Case B: INTERNAL 경로 또는 벡터 검색 실패 시 -> 스마트 하이브리드 (키워드 + 벡터)
         if not results:
             results = await crud_product.search_smart_hybrid(
@@ -403,7 +454,7 @@ async def ai_search(
                 query=core_keyword,  # 핵심 키워드 우선
                 bert_vector=bert_vec,
                 clip_vector=clip_vec,
-                limit=limit,
+                limit=search_limit,
                 filter_gender=target_gender
             )
             
@@ -416,17 +467,17 @@ async def ai_search(
                     query=query,
                     bert_vector=bert_vec,
                     clip_vector=clip_vec,
-                    limit=limit,
+                    limit=search_limit,
                     filter_gender=None  # 성별 필터 해제
                 )
                 if results:
                     search_strategy = "RELAXED_SEARCH"
                     gender_filtered = False
                     logger.info(f"⚠️ Relaxed search found {len(results)} products (gender filter removed)")
-        
+
         # Case C: 최후의 수단 (최신 상품)
         if not results:
-            results = await crud_product.get_multi(db, limit=limit)
+            results = await crud_product.get_multi(db, limit=search_limit)
             search_strategy = "FALLBACK_LATEST"
             gender_filtered = False
 
@@ -435,7 +486,18 @@ async def ai_search(
         # DB 에러가 나도 앱이 죽지 않도록 빈 리스트 반환 혹은 에러 처리
         raise HTTPException(status_code=500, detail="Database Search Failed")
 
-    # 5. ✅ [FIX] Response 매핑 (similarity 포함)
+    # 5. 네거티브 프롬프트 필터링 (있는 경우)
+    filtered_count = 0
+    if negative_prompt and results:
+        original_count = len(results)
+        results = filter_by_negative_prompt(results, negative_prompt)
+        filtered_count = original_count - len(results)
+        logger.info(f"🚫 Negative filtering removed {filtered_count} products")
+
+    # 6. 최종 결과를 limit 개수만큼 자르기
+    results = results[:limit]
+
+    # 7. ✅ [FIX] Response 매핑 (similarity 포함)
     product_responses = []
     for p in results:
         response = map_product_to_response(p)
@@ -449,6 +511,8 @@ async def ai_search(
         "search_path": search_strategy,
         "gender_filter_applied": gender_filtered,  # ✅ [NEW] 성별 필터 적용 여부
         "detected_gender": target_gender,  # ✅ [NEW] 감지된 성별
+        "negative_prompt_applied": negative_prompt is not None and negative_prompt.strip() != "",  # ✅ [NEW] 네거티브 프롬프트 적용 여부
+        "filtered_count": filtered_count,  # ✅ [NEW] 필터링된 상품 개수
         "ai_analysis": {
             "summary": ai_summary,
             "reference_image": ref_image_url,

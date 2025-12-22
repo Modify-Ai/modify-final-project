@@ -1,40 +1,40 @@
 from typing import Any
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-
-from src.api.deps import get_db, get_current_user
-from src.models.user import User
-from src.schemas.user import UserUpdate, UserResponse
+from src.api import deps
+from src.crud import crud_user # 👈 우리가 만든 crud 파일 가져오기
+from src.schemas.user import User, UserUpdate
+from src.models.user import User as UserModel
 
 router = APIRouter()
 
-# 내 정보 조회 (새로고침 시 최신 정보 가져오기 위함)
-@router.get("/me", response_model=UserResponse)
+# 1. 내 정보 조회 (GET)
+@router.get("/me", response_model=User)
 async def read_user_me(
-    current_user: User = Depends(get_current_user),
+    current_user: UserModel = Depends(deps.get_current_user),
 ) -> Any:
     return current_user
 
-# 내 정보 수정 (마케팅 동의 토글용)
-@router.patch("/me", response_model=UserResponse)
+# 2. 내 정보 수정 (PATCH)
+@router.patch("/me", response_model=User)
 async def update_user_me(
+    *,
+    db: AsyncSession = Depends(deps.get_db),
     user_in: UserUpdate,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    current_user: UserModel = Depends(deps.get_current_user),
 ) -> Any:
-    """
-    현재 로그인한 사용자의 정보를 수정합니다. (마케팅 동의 포함)
-    """
-    # 수정할 데이터만 추출 (exclude_unset=True는 보내지 않은 필드는 무시함)
-    update_data = user_in.model_dump(exclude_unset=True)
+    # 이메일 중복 체크 로직
+    if user_in.email and user_in.email != current_user.email:
+        existing_user = await crud_user.get_user_by_email(db, email=user_in.email)
+        if existing_user:
+            raise HTTPException(
+                status_code=400,
+                detail="이미 사용 중인 이메일입니다.",
+            )
+            
+    # 🔥 [수정 포인트] 여기가 중요해! 
+    # 아까 crud_user.py에 만든 함수 이름(update_user)을 정확하게 불러야 해.
+    # (전: crud_user.user.update -> 후: crud_user.update_user)
+    updated_user = await crud_user.update_user(db, db_obj=current_user, obj_in=user_in)
     
-    # DB 객체 업데이트
-    for field, value in update_data.items():
-        setattr(current_user, field, value)
-
-    db.add(current_user)
-    await db.commit()
-    await db.refresh(current_user)
-    
-    return current_user
+    return updated_user
