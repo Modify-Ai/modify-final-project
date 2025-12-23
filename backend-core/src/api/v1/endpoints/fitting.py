@@ -350,3 +350,29 @@ async def get_fitting_history(
     histories = result.scalars().all() 
     
     return histories
+
+@router.delete("/history/{history_id}")
+async def delete_fitting_history(
+    history_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_user)
+):
+    """
+    [히스토리 삭제 API]
+    특정 피팅 기록을 삭제합니다.
+    (본인의 기록만 삭제할 수 있습니다.)
+    """
+    query = select(FittingResult).where(
+        FittingResult.id == history_id,
+        FittingResult.user_id == current_user.id
+    )
+    result = await db.execute(query)
+    fitting_record = result.scalars().first()
+
+    if not fitting_record:
+        raise HTTPException(status_code=404, detail="해당 기록을 찾을 수 없거나 삭제 권한이 없습니다.")
+    
+    await db.delete(fitting_record)
+    await db.commit()
+
+    return {"message": "히스토리가 삭제되었습니다.", "history_id": history_id}
