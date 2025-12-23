@@ -7,14 +7,18 @@ from typing import List, Dict, Any
 logger = logging.getLogger(__name__)
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID")
+# Support both GOOGLE_CSE_ID and GOOGLE_SEARCH_ENGINE_ID
+GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID") or os.getenv("GOOGLE_SEARCH_ENGINE_ID")
 SEARCH_URL = "https://www.googleapis.com/customsearch/v1"
 
 class GoogleSearchClient:
     def __init__(self):
         masked_key = GOOGLE_API_KEY[:5] + "..." if GOOGLE_API_KEY else "None"
-        logger.info(f"🔑 Google Client Init - Key: {masked_key}")
+        masked_cse = GOOGLE_CSE_ID[:5] + "..." if GOOGLE_CSE_ID else "None"
+        logger.info(f"🔑 Google Client Init - API Key: {masked_key}, CSE ID: {masked_cse}")
         self.is_ready = bool(GOOGLE_API_KEY and GOOGLE_CSE_ID)
+        if not self.is_ready:
+            logger.warning(f"⚠️ Google Search not ready - API Key: {bool(GOOGLE_API_KEY)}, CSE ID: {bool(GOOGLE_CSE_ID)}")
 
     # [수정] 유연한 필터링 로직 (조사 제거 및 안전망)
     def _filter_irrelevant_results(self, items: List[Dict[str, Any]], query: str) -> List[Dict[str, Any]]:
@@ -64,7 +68,9 @@ class GoogleSearchClient:
         return filtered_items
 
     async def _execute_search(self, params: Dict[str, Any]) -> List[Dict[str, Any]]:
-        if not self.is_ready: return []
+        if not self.is_ready:
+            logger.error(f"❌ Google Search not ready - API Key exists: {bool(GOOGLE_API_KEY)}, CSE ID exists: {bool(GOOGLE_CSE_ID)}")
+            return []
 
         async with httpx.AsyncClient(timeout=15.0) as client:
             try:
@@ -74,12 +80,17 @@ class GoogleSearchClient:
 
                 response = await client.get(SEARCH_URL, params=params)
                 if response.status_code != 200:
-                    logger.error(f"❌ Google API Error: {response.status_code}")
+                    error_body = response.text
+                    logger.error(f"❌ Google API Error {response.status_code}: {error_body}")
                     return []
 
                 data = response.json()
                 items = data.get("items", [])
-                
+
+                if not items:
+                    logger.warning(f"⚠️ Google API returned 0 items for query: {params.get('q', '')}")
+                    logger.debug(f"Response data: {data}")
+
                 # [적용] 필터링 수행
                 query = params.get("q", "")
                 valid_items = self._filter_irrelevant_results(items, query)

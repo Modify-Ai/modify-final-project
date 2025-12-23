@@ -77,7 +77,7 @@ export default function SalesManagement() {
     setError(null);
     try {
       const params: any = { page, limit };
-      if (statusFilter !== 'all') params.status = statusFilter;
+      if (statusFilter !== 'all') params.status_filter = statusFilter;
       if (startDate) params.start_date = startDate;
       if (endDate) params.end_date = endDate;
 
@@ -94,7 +94,7 @@ export default function SalesManagement() {
 
   useEffect(() => {
     fetchOrders();
-  }, [page, statusFilter]);
+  }, [page, statusFilter, startDate, endDate]);
 
   // 필터 적용
   const handleApplyFilter = () => {

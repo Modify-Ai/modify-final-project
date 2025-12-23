@@ -107,9 +107,54 @@ docker-compose -f docker-compose.dev.yml down
 
 ---
 
-## DB 테이블 수정사항
-```bash
+## 🗄️ 데이터베이스 스키마 정보
 
+데이터베이스 스키마는 **Alembic 마이그레이션**을 통해 자동으로 관리됩니다. 위의 4단계 명령어(`alembic upgrade head`)를 실행하면 아래 테이블들이 자동으로 생성됩니다.
+
+### 주요 테이블 구조
+
+#### 1. **users** - 사용자 정보
+- JWT 기반 인증, 소셜 로그인 지원
+- 프로필 이미지, 배송지 정보 포함
+
+#### 2. **products** - 상품 정보
+- **AI 임베딩 벡터** 포함:
+  - `embedding` (768차원): BERT 텍스트 임베딩
+  - `embedding_clip` (512차원): CLIP 전체 이미지 임베딩
+  - `embedding_clip_upper/lower` (512차원): 상/하의 개별 임베딩
+
+#### 3. **orders** & **order_items** - 주문 시스템
+- 주문 상태 추적, 배송 정보 관리
+- 주문별 상품 목록 및 가격 정보
+
+#### 4. **wishlists** - 위시리스트
+- 사용자별 관심 상품 저장
+
+#### 5. **fitting_results** - 가상 피팅 결과
+- YOLOv8 기반 가상 피팅 이미지 저장
+
+### 🔧 마이그레이션 파일 위치
+마이그레이션 파일은 `backend-core/alembic/versions/` 디렉토리에서 확인할 수 있습니다.
+
+### ⚠️ 데이터베이스 초기화가 필요한 경우
+```bash
+# 모든 컨테이너와 볼륨 삭제
+docker-compose -f docker-compose.dev.yml down -v
+
+# 다시 빌드 및 실행
+docker-compose -f docker-compose.dev.yml up -d --build
+
+# 마이그레이션 실행
+docker-compose -f docker-compose.dev.yml exec backend-core alembic upgrade head
+```
+
+---
+
+## 📋 데이터베이스 테이블 상세 정의 (SQL)
+
+아래는 Alembic 마이그레이션으로 자동 생성되는 테이블의 상세 SQL 정의입니다.
+
+```sql
 -- 1. 트랜잭션 시작 및 기존 테이블 정리
 BEGIN;
 DROP TABLE IF EXISTS order_items CASCADE;
@@ -219,3 +264,4 @@ CREATE INDEX ix_fitting_results_id ON fitting_results (id);
 
 -- 9. 변경사항 확정
 COMMIT;
+```

@@ -64,7 +64,7 @@ export default function CustomerManagement() {
 
   useEffect(() => {
     fetchUsers();
-  }, [page, activeFilter]);
+  }, [page, activeFilter, search]);
 
   // 검색 실행
   const handleSearch = (e: React.FormEvent) => {

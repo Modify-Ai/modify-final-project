@@ -51,9 +51,9 @@ const cancelOrder = async (orderId: number): Promise<Order> => {
 
 const getStatusBadge = (status: string) => {
   const statusMap: Record<string, { label: string; className: string }> = {
-    pending: { label: "결제 대기", className: "bg-gray-200 text-gray-800" },
-    paid: { label: "결제 완료", className: "bg-blue-100 text-blue-800" },
-    shipped: { label: "배송 중", className: "bg-yellow-100 text-yellow-800" },
+    pending: { label: "결제 대기", className: "bg-yellow-100 text-yellow-800" },
+    confirmed: { label: "주문 확인", className: "bg-blue-100 text-blue-800" },
+    shipping: { label: "배송 중", className: "bg-purple-100 text-purple-800" },
     delivered: { label: "배송 완료", className: "bg-green-100 text-green-800" },
     cancelled: { label: "취소됨", className: "bg-red-100 text-red-800" },
   };

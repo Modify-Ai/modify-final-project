@@ -59,12 +59,18 @@ class OrderResponse(BaseModel):
 
 class OrderListResponse(BaseModel):
     id: int
+    user_id: int
     order_number: str
     total_amount: int
     status: str
     payment_status: str
     created_at: datetime
+    updated_at: Optional[datetime] = None
     order_items: List[OrderItemResponse]
+    user_name: Optional[str] = None  # 사용자 이름
+    user_email: Optional[str] = None  # 사용자 이메일
+    first_item_name: Optional[str] = None  # 첫 번째 상품명
+    item_count: Optional[int] = None  # 상품 개수
 
     class Config:
         from_attributes = True

@@ -91,7 +91,7 @@ export default function ProductManagement() {
 
   useEffect(() => {
     fetchProducts();
-  }, [page, category]);
+  }, [page, category, search]);
 
   // 검색 실행
   const handleSearch = (e: React.FormEvent) => {
