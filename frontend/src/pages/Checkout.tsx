@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import axios from "axios";
+import DaumPostcodeEmbed from "react-daum-postcode";
 import {
   ArrowLeft,
   CreditCard,
@@ -17,6 +18,31 @@ import {
   Smartphone,
   Building2,
 } from "lucide-react";
+
+// 🏠 주소 검색 모달 스타일 (Login.tsx)
+const modalStyle = {
+  position: 'fixed' as 'fixed',
+  top: '50%',
+  left: '50%',
+  transform: 'translate(-50%, -50%)',
+  zIndex: 1000,
+  border: '1px solid #ccc',
+  background: '#fff',
+  width: '400px',
+  height: '500px',
+  boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+  borderRadius: '8px',
+};
+
+const overlayStyle = {
+  position: 'fixed' as 'fixed',
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  backgroundColor: 'rgba(0,0,0,0.5)',
+  zIndex: 999,
+};
 
 // --- Icons (Brand Logos) ---
 // 실제 브랜드 로고 느낌을 살린 고퀄리티 SVG
@@ -155,6 +181,7 @@ export default function Checkout() {
     addressType: "new",
   });
   const [sameAsOrderer, setSameAsOrderer] = useState(false);
+  const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<string>("card");
   const [usePoints, setUsePoints] = useState(0);
   const [availablePoints] = useState(1050);
@@ -210,12 +237,29 @@ export default function Checkout() {
     );
   };
   const handleSearchAddress = () => {
-    alert("우편번호 찾기 기능은 다음 주소 API 연동이 필요합니다.");
+    setIsAddressModalOpen(true);
+  };
+
+  // 주소 선택 완료 핸들러
+  const handleAddressComplete = (data: any) => {
+    let fullAddress = data.address;
+    let extraAddress = '';
+
+    if (data.addressType === 'R') {
+      if (data.bname !== '') extraAddress += data.bname;
+      if (data.buildingName !== '') extraAddress += (extraAddress !== '' ? `, ${data.buildingName}` : data.buildingName);
+      fullAddress += (extraAddress !== '' ? ` (${extraAddress})` : '');
+    }
+
+    // shippingInfo 업데이트
     setShippingInfo((prev) => ({
       ...prev,
-      zipCode: "06234",
-      address: "서울특별시 강남구 테헤란로 123",
+      zipCode: data.zonecode,
+      address: fullAddress,
+      addressDetail: '', // 주소가 바뀌었으니 상세주소는 초기화
     }));
+    
+    setIsAddressModalOpen(false); // 모달 닫기
   };
 
   const isFormValid = () => {
@@ -358,6 +402,17 @@ export default function Checkout() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-24">
+
+      {/* [추가] 주소 검색 모달 렌더링 */}
+      {isAddressModalOpen && (
+        <>
+          <div style={overlayStyle} onClick={() => setIsAddressModalOpen(false)} />
+          <div style={modalStyle}>
+            <DaumPostcodeEmbed onComplete={handleAddressComplete} style={{ height: '100%' }} />
+          </div>
+        </>
+      )}
+
       <div className="mb-8">
         <button
           onClick={() => navigate(-1)}
