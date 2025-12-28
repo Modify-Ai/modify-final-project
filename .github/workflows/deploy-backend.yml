@@ -10,7 +10,7 @@ env:
   AWS_REGION: ap-northeast-2
   ECR_REPOSITORY: modify-backend
   ECS_CLUSTER: modify-cluster
-  ECS_SERVICE: modify-backend-service
+  ECS_SERVICE: modify-service-final
 
 jobs:
   deploy:

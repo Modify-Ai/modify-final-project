@@ -35,3 +35,4 @@ COPY src /app/src
 # 실행 포트
 EXPOSE 8000
 # CMD는 docker-compose에서 uvicorn --reload로 오버라이딩됨
+# 배포 트리거용 주석입니다
