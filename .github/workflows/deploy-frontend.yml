@@ -30,7 +30,7 @@ jobs:
 
     - name: Build React App
       env:
-        # 아까 등록한 백엔드 주소를 여기서 주입합니다
+      
         VITE_API_URL: ${{ secrets.VITE_API_URL }}
       run: |
         cd frontend
