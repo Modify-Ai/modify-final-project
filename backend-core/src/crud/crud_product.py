@@ -1,11 +1,10 @@
 """
-crud_product.py - 수정된 버전 v2
+crud_product.py - 수정된 버전 v3 (Final Fix)
 경로: backend-core/src/crud/crud_product.py
 
 수정 사항:
-1. search_hybrid에 exclude_category, exclude_id 파라미터 추가
-2. search_by_vector에 filter_gender 파라미터 추가
-3. ✅ NEW: search_by_clip_vector - CLIP 이미지 벡터 기반 검색
+1. search_by_clip_vector에 'target', 'include_category' 파라미터 추가 (에러 해결)
+2. include_category 필터링 로직 구현 (상의만/하의만 검색 지원)
 """
 
 from typing import List, Optional, Any, Union, Dict
@@ -59,7 +58,7 @@ class CRUDProduct:
         return await self.get(db, product_id)
 
     # -------------------------------------------------------
-    # 🔍 [NEW] 스마트 하이브리드 검색 - 키워드 우선 + 벡터 보조
+    # 🔍 스마트 하이브리드 검색 - 키워드 우선 + 벡터 보조
     # -------------------------------------------------------
     async def search_smart_hybrid(
         self,
@@ -212,7 +211,7 @@ class CRUDProduct:
         return keywords
 
     # -------------------------------------------------------
-    # ✅ [NEW] CLIP 이미지 벡터 기반 검색 (시각적 유사도)
+    # ✅ [FIXED] CLIP 이미지 벡터 기반 검색 (시각적 유사도)
     # -------------------------------------------------------
     async def search_by_clip_vector(
         self, 
@@ -223,12 +222,13 @@ class CRUDProduct:
         exclude_category: Optional[List[str]] = None,
         exclude_id: Optional[List[int]] = None,
         min_price: Optional[int] = None,
-        max_price: Optional[int] = None
+        max_price: Optional[int] = None,
+        # ✅ [NEW] 에러 해결을 위한 파라미터 추가
+        target: str = "full",
+        include_category: Optional[List[str]] = None
     ) -> List[Product]:
         """
         ✅ CLIP 이미지 벡터(512차원)로 시각적 유사도 검색
-        - 연예인 패션 검색 등 이미지 기반 검색에 사용
-        - embedding_clip 컬럼 사용
         """
         import logging
         logger = logging.getLogger(__name__)
@@ -252,6 +252,10 @@ class CRUDProduct:
                     Product.gender.is_(None)
                 )
             )
+        
+        # ✅ [NEW] 특정 카테고리만 포함 (예: 상의만 검색)
+        if include_category:
+            conditions.append(Product.category.in_(include_category))
         
         # 카테고리 제외
         if exclude_category:
@@ -281,7 +285,7 @@ class CRUDProduct:
         # ✅ 유사도 점수 상세 로깅
         products = []
         logger.info("=" * 70)
-        logger.info(f"📊 CLIP 유사도 검색 결과 (상위 {len(rows)}개, 성별필터: {filter_gender})")
+        logger.info(f"📊 CLIP 유사도 검색 결과 (상위 {len(rows)}개, 타겟: {target})")
         logger.info("=" * 70)
         
         total_similarity = 0
@@ -297,25 +301,23 @@ class CRUDProduct:
             logger.info(
                 f"  #{i+1:2d} | ID:{product.id:4d} | {name_display:<28} | "
                 f"거리:{distance:.4f} | 유사도:{similarity:.4f} ({similarity*100:.1f}%) | "
-                f"성별:{product.gender or 'N/A'} | 카테고리:{product.category}"
+                f"카테고리:{product.category}"
             )
             
+            # 유사도 점수를 객체에 임시 저장 (프론트엔드 전달용)
+            setattr(product, 'similarity', similarity)
             products.append(product)
         
         logger.info("-" * 70)
         if rows:
             avg_similarity = total_similarity / len(rows)
             logger.info(f"📈 평균 유사도: {avg_similarity:.4f} ({avg_similarity*100:.1f}%)")
-            
-            # 유사도가 너무 낮으면 경고
-            if avg_similarity < 0.3:
-                logger.warning(f"⚠️ 평균 유사도가 매우 낮음 ({avg_similarity*100:.1f}%) - CLIP 벡터 품질 확인 필요")
         logger.info("=" * 70)
         
         return products
 
     # -------------------------------------------------------
-    # 🔧 [UPDATED] 기존 하이브리드 검색 - exclude 파라미터 추가
+    # 기존 하이브리드 검색
     # -------------------------------------------------------
     async def search_hybrid(
         self, 
@@ -326,11 +328,10 @@ class CRUDProduct:
         filter_gender: Optional[str] = None,
         min_price: Optional[int] = None,
         max_price: Optional[int] = None,
-        # ✅ 추가: 제외 파라미터
         exclude_category: Optional[List[str]] = None,
         exclude_id: Optional[List[int]] = None
     ) -> List[Product]:
-        """기존 하이브리드 검색 (호환성 유지) + exclude 파라미터 추가"""
+        """기존 하이브리드 검색"""
         
         base_conditions = [
             Product.is_active == True,
@@ -350,12 +351,10 @@ class CRUDProduct:
         if max_price is not None:
             base_conditions.append(Product.price <= max_price)
         
-        # ✅ 추가: 카테고리 제외
         if exclude_category:
             for cat in exclude_category:
                 base_conditions.append(Product.category != cat)
         
-        # ✅ 추가: ID 제외
         if exclude_id:
             base_conditions.append(Product.id.notin_(exclude_id))
 
@@ -394,7 +393,7 @@ class CRUDProduct:
         return list(result.scalars().all())
 
     # -------------------------------------------------------
-    # 🔧 [UPDATED] 벡터 검색 - filter_gender 파라미터 추가
+    # 벡터 검색 - filter_gender 파라미터 추가
     # -------------------------------------------------------
     async def search_by_vector(
         self, 
@@ -405,7 +404,6 @@ class CRUDProduct:
         exclude_id: Optional[List[int]] = None,
         min_price: Optional[int] = None,
         max_price: Optional[int] = None,
-        # ✅ 추가: 성별 필터
         filter_gender: Optional[str] = None,
         **kwargs
     ) -> List[Product]:
@@ -419,22 +417,18 @@ class CRUDProduct:
             Product.embedding.is_not(None)
         ]
         
-        # 카테고리 제외
         if exclude_category:
             for cat in exclude_category:
                 conditions.append(Product.category != cat)
         
-        # ID 제외
         if exclude_id:
             conditions.append(Product.id.notin_(exclude_id))
         
-        # 가격 범위
         if min_price is not None:
             conditions.append(Product.price >= min_price)
         if max_price is not None:
             conditions.append(Product.price <= max_price)
         
-        # ✅ 추가: 성별 필터
         if filter_gender:
             conditions.append(
                 or_(

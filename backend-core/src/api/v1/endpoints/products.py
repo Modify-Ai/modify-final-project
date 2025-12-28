@@ -4,6 +4,8 @@ import io
 import shutil
 import os
 import uuid
+import boto3  # ✅ AWS S3 연동
+from botocore.exceptions import NoCredentialsError # ✅ AWS 에러 처리
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile
@@ -22,12 +24,18 @@ from src.schemas.product import (
     LLMQueryBody
 )
 
+from sqlalchemy import select as sql_select, func as sql_func, desc as sql_desc, case as sql_case
+from src.models.product import Product
+
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # 🚨 [CRITICAL FIX] ECS 환경에서 DNS 이슈 방지를 위한 강제 로컬호스트 주소
-# settings.py가 환경변수를 잘못 읽더라도, 코드는 무조건 127.0.0.1을 바라봅니다.
 SAFE_AI_URL = "http://127.0.0.1:8001/api/v1"
+
+# ✅ [AWS S3 설정]
+AWS_S3_BUCKET_NAME = "modify-frontend-final-ai4"
+AWS_REGION = "ap-northeast-2"
 
 # ------------------------------------------------------------------
 # [Helper] 문자열 정리
@@ -61,7 +69,6 @@ async def _heal_product_embedding(db: AsyncSession, product: Any) -> Any:
         try:
             async with httpx.AsyncClient(timeout=20.0) as client:
                 prompt = f"상품명: {product.name}, 카테고리: {product.category}. 매력적인 쇼핑몰 상세 설명을 5문장 작성해줘."
-                # SAFE_AI_URL 사용
                 res = await client.post(f"{SAFE_AI_URL}/llm-generate-response", json={"prompt": prompt})
                 if res.status_code == 200:
                     new_description = res.json().get("answer", product.name)
@@ -73,7 +80,6 @@ async def _heal_product_embedding(db: AsyncSession, product: Any) -> Any:
     try:
         text_to_embed = f"{product.name} {product.category} {new_description}"
         async with httpx.AsyncClient(timeout=10.0) as client:
-            # SAFE_AI_URL 사용
             res = await client.post(f"{SAFE_AI_URL}/embed-text", json={"text": text_to_embed})
             if res.status_code == 200:
                 new_vector = res.json().get("vector", [])
@@ -93,7 +99,7 @@ async def _heal_product_embedding(db: AsyncSession, product: Any) -> Any:
 
 
 # =========================================================
-# 1️⃣ [API] 이미지 자동 분석 업로드 (단일) - 수정 완료 ✅
+# 1️⃣ [API] 이미지 자동 분석 업로드 (S3 버전) - 수정 완료 ✅
 # =========================================================
 @router.post("/upload/image-auto", response_model=ProductResponse)
 async def upload_product_image_auto(
@@ -105,24 +111,20 @@ async def upload_product_image_auto(
         raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다.")
 
     ai_analyzed_data = {}
-    logger.info(f"Processing Image: {file.filename}")
+    logger.info(f"Processing Image Upload (S3): {file.filename}")
 
-    # 1. 파일 내용 읽기
+    # 1. 파일 내용 읽기 (메모리에 로드)
     await file.seek(0)
     file_content = await file.read()
     
-    # [Step A] AI 서비스로 이미지 전송 (파일 내용 그대로 전송)
+    # [Step A] AI 서비스로 이미지 전송 (분석용)
     async with httpx.AsyncClient(timeout=60.0) as client:
         try:
-            # multipart/form-data로 전송 (파일 자체를 보냄)
             files = {"file": (file.filename, file_content, file.content_type)}
-            
-            # 🚨 [FIX] SAFE_AI_URL 사용 (DNS 에러 해결)
             response = await client.post(
                 f"{SAFE_AI_URL}/analyze-image",
                 files=files 
             )
-            
             if response.status_code == 200:
                 ai_analyzed_data = response.json()
             else:
@@ -130,23 +132,47 @@ async def upload_product_image_auto(
         except Exception as e:
             logger.error(f"AI Connection Error: {e}")
 
-    # [Step B] 로컬 저장
+    # ----------------------------------------------------------------
+    # ✅ [Step B] AWS S3 업로드 (핵심 변경 사항)
+    # ----------------------------------------------------------------
+    final_image_url = ""
     try:
-        UPLOAD_DIR = "/app/src/static/images"
-        os.makedirs(UPLOAD_DIR, exist_ok=True)
-        
+        # 1. S3 클라이언트 생성
+        s3_client = boto3.client(
+            's3',
+            aws_access_key_id=getattr(settings, 'AWS_ACCESS_KEY_ID', None),
+            aws_secret_access_key=getattr(settings, 'AWS_SECRET_ACCESS_KEY', None),
+            region_name=AWS_REGION
+        )
+
+        # 2. 파일명 난수화
         file_ext = os.path.splitext(file.filename)[1]
         unique_filename = f"{uuid.uuid4()}{file_ext}"
-        file_path = os.path.join(UPLOAD_DIR, unique_filename)
         
-        with open(file_path, "wb") as buffer:
-            buffer.write(file_content)
-            
-        final_image_url = f"/static/images/{unique_filename}"
-        
+        # 3. S3 저장 경로 (static/images/파일명)
+        s3_key = f"static/images/{unique_filename}"
+
+        # 4. 업로드 실행 (메모리 -> S3)
+        s3_client.upload_fileobj(
+            io.BytesIO(file_content),
+            AWS_S3_BUCKET_NAME,
+            s3_key,
+            ExtraArgs={
+                "ContentType": file.content_type
+            }
+        )
+
+        # 5. S3 URL 생성 (DB 저장용)
+        final_image_url = f"https://{AWS_S3_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{s3_key}"
+        logger.info(f"✅ S3 Upload Success: {final_image_url}")
+
+    except NoCredentialsError:
+        logger.error("AWS 자격 증명이 없습니다.")
+        raise HTTPException(status_code=500, detail="AWS S3 자격 증명 오류")
     except Exception as e:
-        logger.error(f"File Save Error: {e}")
-        raise HTTPException(status_code=500, detail="서버 파일 저장 실패")
+        logger.error(f"S3 Upload Error: {str(e)}")
+        # 실패 시에도 서버가 죽지 않도록 플레이스홀더 처리
+        final_image_url = "https://placehold.co/600x400?text=Upload+Failed"
 
     # [Step C] 데이터 파싱
     raw_name = ai_analyzed_data.get("name")
@@ -154,7 +180,6 @@ async def upload_product_image_auto(
     
     raw_desc = ai_analyzed_data.get("description")
     final_desc = str(raw_desc).strip() if raw_desc else "AI 분석 중... 상세 내용을 수정해주세요."
-
     final_gender = ai_analyzed_data.get("gender", "Unisex")
 
     try:
@@ -162,20 +187,13 @@ async def upload_product_image_auto(
     except:
         final_price = 0
 
-    # 🚨 [CRITICAL FIX] 벡터 데이터 검증 및 None 변환
-    # AI가 실패해서 []를 보내면, DB는 에러를 뱉습니다. 이를 방지하기 위해 None으로 변환합니다.
+    # 벡터 처리
     vector = ai_analyzed_data.get("vector", [])
     if not vector or len(vector) != 768:
-        logger.warning(f"⚠️ Invalid BERT vector size: {len(vector) if vector else 0}. Saving as NULL.")
-        vector = None  # pgvector는 NULL 허용
-
+        vector = None
     vector_clip = ai_analyzed_data.get("vector_clip", [])
     if not vector_clip or len(vector_clip) != 512:
-        logger.warning(f"⚠️ Invalid CLIP vector size: {len(vector_clip) if vector_clip else 0}. Saving as NULL.")
-        vector_clip = None # pgvector는 NULL 허용
-
-    if vector is not None:
-        logger.info(f"📊 Vectors valid - BERT: 768dim, CLIP: {512 if vector_clip else 'None'}")
+        vector_clip = None
 
     # [Step D] DB 저장
     product_in_data = {
@@ -184,25 +202,20 @@ async def upload_product_image_auto(
         "description": sanitize_string(final_desc),
         "price": final_price,
         "stock_quantity": 100,
-        "image_url": final_image_url,
-        "embedding": vector,              # None 처리됨 -> 에러 안 남
-        "embedding_clip": vector_clip,    # None 처리됨 -> 에러 안 남
+        "image_url": final_image_url, # ✅ S3 URL 저장
+        "embedding": vector,
+        "embedding_clip": vector_clip,
         "gender": final_gender,
         "is_active": True
     }
 
     try:
         new_product = await crud_product.create(db, obj_in=product_in_data)
-        
-        # 벡터가 없으면 나중에라도 복구 시도 (옵션)
         if vector is None:
             new_product = await _heal_product_embedding(db, new_product)
-            
-        logger.info(f"✅ Product created with ID {new_product.id}")
         return new_product
     except Exception as e:
         logger.error(f"DB Insert Error: {e}")
-        # 상세 에러 메시지 반환
         raise HTTPException(status_code=500, detail=f"DB 저장 실패: {str(e)}")
 
 
@@ -229,8 +242,6 @@ async def upload_products_csv(
 
     csv_reader = csv.DictReader(io.StringIO(decoded_content))
     results = {"success": 0, "failed": 0, "errors": []}
-    
-    # SAFE_AI_URL 사용
     AI_SERVICE_API_URL = SAFE_AI_URL
 
     for row in csv_reader:
@@ -256,25 +267,20 @@ async def upload_products_csv(
             
             image_url = row.get("image_url") or row.get("이미지") or "https://placehold.co/400x500?text=No+Image"
 
-            # BERT 벡터 생성
-            vector = None # 기본값 None
+            # BERT 벡터
+            vector = None 
             text_for_vector = f"[{gender}] {name} {category} {description}"
-            
             async with httpx.AsyncClient(timeout=3.0) as client:
                 try:
-                    res = await client.post(
-                        f"{AI_SERVICE_API_URL}/embed-text", 
-                        json={"text": text_for_vector}
-                    )
+                    res = await client.post(f"{AI_SERVICE_API_URL}/embed-text", json={"text": text_for_vector})
                     if res.status_code == 200:
                         v_data = res.json().get("vector", [])
                         if v_data and len(v_data) == 768:
                             vector = v_data
-                except Exception:
-                    pass 
+                except: pass 
 
-            # CLIP 벡터 생성
-            vector_clip = None # 기본값 None
+            # CLIP 벡터
+            vector_clip = None
             if image_url and not image_url.startswith("https://placehold"):
                 try:
                     async with httpx.AsyncClient(timeout=10.0) as client:
@@ -282,11 +288,7 @@ async def upload_products_csv(
                         if img_response.status_code == 200:
                             import base64
                             image_b64 = base64.b64encode(img_response.content).decode("utf-8")
-                            
-                            clip_res = await client.post(
-                                f"{AI_SERVICE_API_URL}/generate-clip-vector",
-                                json={"image_b64": image_b64}
-                            )
+                            clip_res = await client.post(f"{AI_SERVICE_API_URL}/generate-clip-vector", json={"image_b64": image_b64})
                             if clip_res.status_code == 200:
                                 v_clip_data = clip_res.json().get("vector", [])
                                 if v_clip_data and len(v_clip_data) == 512:
@@ -315,7 +317,6 @@ async def upload_products_csv(
             results["errors"].append(f"{name}: {str(e)}")
 
     return results
-
 
 # =========================================================
 # 3️⃣ 일반 API (CRUD, Recommendation, LLM Query)
@@ -364,8 +365,6 @@ async def create_product(
 # =========================================================
 # 관리자용 상품 관리 API
 # =========================================================
-from sqlalchemy import select as sql_select, func as sql_func, desc as sql_desc, case as sql_case
-from src.models.product import Product
 
 @router.get("/admin/list", response_model=dict)
 async def get_products_admin(

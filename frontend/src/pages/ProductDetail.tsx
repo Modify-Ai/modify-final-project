@@ -16,14 +16,14 @@ import {
   Sparkles,
   Star,
   ChevronRight,
-  X, // 닫기 아이콘
+  X,
 } from "lucide-react";
 
 import client from "../api/client";
 import ProductCard from "../components/product/ProductCard";
 import Modal from "../components/ui/Modal";
 
-// 🖼️ [Image Import] 형이 지정한 경로의 이미지 불러오기
+// 🖼️ [Image Import]
 import sizeIcon from "../assets/images/size.png";
 
 // --- Types ---
@@ -58,7 +58,7 @@ interface BodyMeasurements {
   preferFit: "tight" | "regular" | "loose";
 }
 
-// 🎨 [Custom Icons] 이미지 속 아이콘을 SVG로 직접 구현 (마네킹)
+// 🎨 [Custom Icons]
 const MannequinIcon = ({ className }: { className?: string }) => (
   <svg
     viewBox="0 0 24 24"
@@ -114,12 +114,13 @@ export default function ProductDetail() {
   const [isProductLoading, setIsProductLoading] = useState(true);
   const [isProductError, setIsProductError] = useState(false);
 
-  // ✅ 이미지 주소 정규화 헬퍼 함수
+  // ✅ [수정된 부분] 이미지 주소 정규화 헬퍼 함수 (S3 주소로 연결)
   const getImageUrl = (url: string) => {
-    if (!url) return "https://placehold.co/600x800/f3f4f6/9ca3af?text=No+Image";
+    if (!url) return "/placeholder.png";
+    // 이미 http로 시작하면(S3 풀 주소면) 그대로 사용
     if (url.startsWith("http")) return url;
-    const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
-    return `${baseUrl}${url.startsWith("/") ? url : `/${url}`}`;
+    // 아니면 S3 버킷 주소를 붙여서 완성
+    return `https://modify-frontend-final-ai4.s3.ap-northeast-2.amazonaws.com${url.startsWith("/") ? "" : "/"}${url}`;
   };
 
   // 상품 정보 가져오기
@@ -152,7 +153,7 @@ export default function ProductDetail() {
   >([]);
   const llmQueryMutation = useLLMQuery(productId || 0);
 
-  // UI 상태 (모달, 이미지 줌, 채팅 위젯)
+  // UI 상태
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalContent, setModalContent] = useState<React.ReactNode>(null);
   const [modalTitle, setModalTitle] = useState("");
@@ -307,7 +308,6 @@ export default function ProductDetail() {
             <div className="absolute top-0 right-0 -mt-2 -mr-2 w-16 h-16 bg-purple-200 rounded-full opacity-20 blur-xl"></div>
             <div className="flex items-start gap-4 relative z-10">
               <div className="p-2.5 bg-white rounded-xl shadow-sm border border-purple-50">
-                {/* 🎨 [Custom Icon] 마네킹 아이콘 */}
                 <MannequinIcon className="w-5 h-5 text-purple-600" />
               </div>
               <div className="space-y-1">
@@ -441,7 +441,7 @@ export default function ProductDetail() {
     "MODIFY가 상품 상세 정보를 분석하여 최적의 쇼핑 정보를 제공합니다.";
 
   return (
-    // 🎨 전체 배경: 부드러운 오프화이트 톤
+    // 🎨 전체 배경
     <div className="min-h-screen bg-[#F8F9FA] dark:bg-black transition-colors duration-300">
       {/* 상단 네비게이션 영역 */}
       <div className="sticky top-0 z-10 bg-white/80 dark:bg-black/80 backdrop-blur-md border-b border-gray-100 dark:border-gray-800">
@@ -455,7 +455,7 @@ export default function ProductDetail() {
             </div>
             <span className="text-sm">Back</span>
           </button>
-          {/* 상단 간략 정보 (스크롤 시 유용) */}
+          {/* 상단 간략 정보 */}
           <div
             className="hidden md:flex items-center gap-4 opacity-0 animate-fade-in"
             style={{ animationDelay: "0.5s", animationFillMode: "forwards" }}
@@ -468,29 +468,29 @@ export default function ProductDetail() {
               {product.price.toLocaleString()}원
             </span>
           </div>
-          <div className="w-10"></div> {/* Spacer for symmetry */}
+          <div className="w-10"></div>
         </div>
       </div>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12 pb-32 animate-fade-in">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16 mb-20">
-          {/* 🎨 [Left] Image Section: 압도적인 비주얼 */}
+          {/* 🎨 [Left] Image Section */}
           <div className="lg:col-span-7 relative">
             <div className="sticky top-24">
               <div className="relative bg-white dark:bg-gray-900 rounded-[2.5rem] overflow-hidden aspect-[3/4] lg:aspect-[4/5] shadow-[0_20px_50px_-12px_rgba(0,0,0,0.1)] group border border-gray-100 dark:border-gray-800">
+                {/* ✅ [수정] getImageUrl 헬퍼 함수 적용 */}
                 <img
                   src={getImageUrl(product.image_url)}
                   alt={product.name}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-1000 ease-out"
                   onError={(e) =>
-                    (e.currentTarget.src =
-                      "https://placehold.co/600x800/f3f4f6/9ca3af?text=No+Image")
+                    (e.currentTarget.src = "/placeholder.png")
                   }
                 />
                 {/* Image Overlay Gradient */}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
 
-                {/* 🔍 [Modified] 이미지 확대 버튼 */}
+                {/* 🔍 이미지 확대 버튼 */}
                 <button
                   onClick={() => setIsImageZoomOpen(true)}
                   className="absolute top-6 right-6 p-3 bg-white/90 backdrop-blur-md rounded-full text-gray-700 hover:text-purple-600 transition-all shadow-lg hover:scale-110 active:scale-95 z-10"
@@ -501,9 +501,8 @@ export default function ProductDetail() {
             </div>
           </div>
 
-          {/* 🎨 [Right] Product Info & AI Interactions */}
+          {/* 🎨 [Right] Product Info */}
           <div className="lg:col-span-5 flex flex-col justify-center">
-            {/* ... (생략된 상단 정보 코드 유지) ... */}
             <div className="mb-10">
               <div className="flex items-center gap-3 mb-6 flex-wrap">
                 <span className="px-4 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-xs font-bold rounded-full uppercase tracking-wider border border-gray-200 dark:border-gray-700">
@@ -576,7 +575,7 @@ export default function ProductDetail() {
               </div>
             </div>
 
-            {/* 🎨 [AI Features] Glassmorphism Cards */}
+            {/* 🎨 [AI Features] */}
             <div className="space-y-4 mt-8">
               <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-2">
                 AI Smart Assistant
@@ -606,7 +605,7 @@ export default function ProductDetail() {
                 </div>
               </div>
 
-              {/* 📏 사이즈 분석 카드 -> 🎨 [Custom] PNG Icon 적용 */}
+              {/* 📏 사이즈 분석 카드 */}
               <div
                 onClick={() => setIsSizeModalOpen(true)}
                 className="group relative bg-white dark:bg-gray-800 p-1 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm hover:shadow-lg transition-all cursor-pointer overflow-hidden"
@@ -615,7 +614,6 @@ export default function ProductDetail() {
                 <div className="relative p-5 flex items-center justify-between">
                   <div className="flex items-center gap-4">
                     <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
-                      {/* 🔥 형님이 준 PNG 아이콘 적용 */}
                       <img
                         src={sizeIcon}
                         alt="Size Analysis"
@@ -639,14 +637,14 @@ export default function ProductDetail() {
         </div>
       </main>
 
-      {/* 🚀 [Floating Chat Button] 우측 하단 둥둥 떠있는 버튼 (알약 모양 -> 원형 전환) */}
+      {/* 🚀 [Floating Chat Button] */}
       <button
         onClick={() => setIsChatOpen(!isChatOpen)}
         className={`fixed bottom-6 right-6 z-50 flex items-center justify-center shadow-2xl hover:scale-105 transition-all duration-300 group
           ${
             isChatOpen
-              ? "w-14 h-14 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-full" // 열렸을 땐 원형 X 버튼
-              : "px-6 py-4 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-full gap-2.5" // 닫혔을 땐 알약 모양 (텍스트 포함)
+              ? "w-14 h-14 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-full"
+              : "px-6 py-4 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-full gap-2.5"
           }`}
       >
         {isChatOpen ? (
@@ -661,7 +659,7 @@ export default function ProductDetail() {
         )}
       </button>
 
-      {/* 💬 [Chat Popup Widget] 버튼 누르면 나오는 채팅창 */}
+      {/* 💬 [Chat Popup Widget] */}
       <div
         className={`fixed bottom-24 right-6 z-40 w-[90vw] max-w-[400px] h-[600px] bg-white dark:bg-gray-900 rounded-[2rem] shadow-2xl border border-gray-100 dark:border-gray-800 overflow-hidden transition-all duration-300 origin-bottom-right ${
           isChatOpen
@@ -669,7 +667,6 @@ export default function ProductDetail() {
             : "scale-0 opacity-0 pointer-events-none"
         }`}
       >
-        {/* Chat Header */}
         <div className="bg-gradient-to-r from-gray-900 to-gray-800 p-6 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="relative">
@@ -689,13 +686,11 @@ export default function ProductDetail() {
           </div>
         </div>
 
-        {/* Chat Body */}
         <div className="flex flex-col h-[calc(100%-88px)] bg-[#F3F4F6] dark:bg-[#111]">
           <div
             className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar scroll-smooth"
             ref={chatScrollRef}
           >
-            {/* Welcome Message (System) */}
             <div className="flex justify-start animate-slide-up">
               <div className="max-w-[85%] space-y-2">
                 <div className="flex items-center gap-2 mb-1 ml-1">
@@ -726,7 +721,6 @@ export default function ProductDetail() {
               </div>
             </div>
 
-            {/* History Messages */}
             {qaHistory.map((item, index) => (
               <div
                 key={index}
@@ -748,7 +742,6 @@ export default function ProductDetail() {
               </div>
             ))}
 
-            {/* Loading Indicator */}
             {llmQueryMutation.isPending && (
               <div className="flex justify-start animate-fade-in">
                 <div className="bg-white dark:bg-gray-800 px-4 py-3 rounded-2xl rounded-tl-none shadow-sm border border-gray-100 dark:border-gray-700 flex items-center gap-2">
@@ -774,7 +767,6 @@ export default function ProductDetail() {
             )}
           </div>
 
-          {/* Input Area */}
           <div className="p-4 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800">
             <div className="flex gap-3 bg-gray-50 dark:bg-gray-800 p-2 rounded-[1.5rem] border border-gray-200 dark:border-gray-700 focus-within:ring-2 focus-within:ring-purple-100 dark:focus-within:ring-purple-900 transition-all">
               <input
@@ -798,7 +790,7 @@ export default function ProductDetail() {
         </div>
       </div>
 
-      {/* 모달: 디자인 적용 */}
+      {/* 모달 */}
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
@@ -913,22 +905,22 @@ export default function ProductDetail() {
             src={getImageUrl(product.image_url)}
             alt={product.name}
             className="max-w-[95vw] max-h-[95vh] object-contain rounded-lg shadow-2xl cursor-default"
-            onClick={(e) => e.stopPropagation()} // 이미지 클릭 시 닫히지 않도록 방지
+            onClick={(e) => e.stopPropagation()}
           />
         </div>
       )}
 
       {/* Utility Styles */}
       <style>{`
-                .animate-fade-in { animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; opacity: 0; transform: translateY(20px); }
-                .animate-slide-up { animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; opacity: 0; transform: translateY(10px); }
-                @keyframes fadeIn { to { opacity: 1; transform: translateY(0); } }
-                @keyframes slideUp { to { opacity: 1; transform: translateY(0); } }
-                .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-                .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-                .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #e5e7eb; border-radius: 20px; }
-                .scrollbar-hide::-webkit-scrollbar { display: none; }
-            `}</style>
+        .animate-fade-in { animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; opacity: 0; transform: translateY(20px); }
+        .animate-slide-up { animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; opacity: 0; transform: translateY(10px); }
+        @keyframes fadeIn { to { opacity: 1; transform: translateY(0); } }
+        @keyframes slideUp { to { opacity: 1; transform: translateY(0); } }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #e5e7eb; border-radius: 20px; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+      `}</style>
     </div>
   );
 }

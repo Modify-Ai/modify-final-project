@@ -19,7 +19,6 @@ import {
 } from "lucide-react";
 
 // --- Icons (Brand Logos) ---
-// 실제 브랜드 로고 느낌을 살린 고퀄리티 SVG
 const KakaoSymbol = () => (
   <svg viewBox="0 0 24 24" className="w-full h-full" fill="currentColor">
     <path d="M12 3C5.925 3 1 6.925 1 11.775c0 2.9 1.75 5.5 4.625 7.125-.2 2.375-1.6 5.375-1.625 5.425 0 .05.025.1.075.125.025.025.075.025.1 0 .025 0 2.375-1.6 4.975-3.4 1 .15 1.85.225 2.85.225 6.075 0 11-3.925 11-8.775C23 6.925 18.075 3 12 3z" />
@@ -52,8 +51,8 @@ const PAYMENT_METHODS = [
   {
     id: "kakao",
     label: "카카오페이",
-    color: "text-[#391B1B]", // 카카오 갈색
-    bg: "bg-[#FAE100]/10", // 카카오 노랑 연하게
+    color: "text-[#391B1B]",
+    bg: "bg-[#FAE100]/10",
     border: "border-[#FAE100]",
     icon: (
       <div className="w-8 h-8 text-[#391B1B]">
@@ -64,7 +63,7 @@ const PAYMENT_METHODS = [
   {
     id: "naver",
     label: "네이버페이",
-    color: "text-[#03C75A]", // 네이버 그린
+    color: "text-[#03C75A]",
     bg: "bg-[#03C75A]/10",
     border: "border-[#03C75A]",
     icon: (
@@ -76,7 +75,7 @@ const PAYMENT_METHODS = [
   {
     id: "toss",
     label: "토스페이",
-    color: "text-[#0064FF]", // 토스 블루
+    color: "text-[#0064FF]",
     bg: "bg-[#0064FF]/10",
     border: "border-[#0064FF]",
     icon: (
@@ -107,7 +106,8 @@ interface CartItem {
   id: number;
   name: string;
   price: number;
-  image_url: string;
+  image_url?: string; // [수정] 옵셔널로 변경
+  image?: string;     // [수정] image 속성 추가 (장바구니 호환)
   quantity: number;
   size?: string;
 }
@@ -159,7 +159,6 @@ export default function Checkout() {
   const [usePoints, setUsePoints] = useState(0);
   const [availablePoints] = useState(1050);
 
-  // ... (기존 useEffect 및 핸들러 로직 100% 동일 유지) ...
   useEffect(() => {
     const loadItems = () => {
       try {
@@ -231,6 +230,20 @@ export default function Checkout() {
   };
   const itemsWithoutSize = cartItems.filter((item) => !item.size);
 
+  // [Helper] 이미지 URL 추출 함수 (강력해짐!)
+  const getImageUrl = (item: CartItem) => {
+    // 1. image_url 또는 image 속성에서 값 가져오기
+    const rawUrl = item.image_url || item.image || "";
+    
+    if (!rawUrl) return "/placeholder.png";
+    
+    // 2. 이미 http로 시작하면 그대로 반환 (S3 풀 주소인 경우)
+    if (rawUrl.startsWith("http")) return rawUrl;
+    
+    // 3. 상대 경로인 경우 S3 도메인 붙여서 반환
+    return `https://modify-frontend-final-ai4.s3.ap-northeast-2.amazonaws.com${rawUrl.startsWith("/") ? "" : "/"}${rawUrl}`;
+  };
+
   const handlePayment = async () => {
     if (!isFormValid()) {
       if (itemsWithoutSize.length > 0)
@@ -240,7 +253,6 @@ export default function Checkout() {
     }
     setIsProcessing(true);
     try {
-      // zustand persist에서 토큰 가져오기
       const authStorage = localStorage.getItem("auth-storage");
       const token = authStorage ? JSON.parse(authStorage).state.token : null;
 
@@ -252,7 +264,6 @@ export default function Checkout() {
 
       const API_URL = import.meta.env.VITE_API_URL || "http://localhost";
 
-      // 주문 데이터 생성
       const orderData = {
         recipient_name: shippingInfo.name,
         recipient_phone: shippingInfo.phone,
@@ -265,12 +276,12 @@ export default function Checkout() {
           product_id: item.id,
           product_name: item.name,
           product_price: item.price,
-          product_image_url: item.image_url,
+          // [수정] 여기서도 image_url이 없으면 image를 보내도록 처리
+          product_image_url: item.image_url || item.image || "", 
           quantity: item.quantity,
         })),
       };
 
-      // 백엔드 API로 주문 생성
       const response = await axios.post(
         `${API_URL}/api/v1/orders/`,
         orderData,
@@ -384,8 +395,9 @@ export default function Checkout() {
                   className="flex gap-4 pb-4 border-b border-gray-100 last:border-0 last:pb-0"
                 >
                   <div className="w-20 h-24 bg-gray-100 rounded-lg overflow-hidden shrink-0">
+                    {/* ✅ [수정완료] 강력해진 이미지 로더 적용 */}
                     <img
-                      src={item.image_url || "/placeholder.png"}
+                      src={getImageUrl(item)}
                       alt={item.name}
                       className="w-full h-full object-cover"
                       onError={(e) =>
@@ -671,7 +683,6 @@ export default function Checkout() {
         </div>
 
         <div className="lg:col-span-3 space-y-6">
-          {/* 🎨 [UI Upgrade] 결제 수단 그리드 배치 */}
           <div className="bg-white rounded-2xl border border-gray-200 p-5">
             <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
               <CreditCard className="w-5 h-5 text-purple-600" /> 결제 수단
@@ -683,18 +694,18 @@ export default function Checkout() {
                   key={method.id}
                   onClick={() => setPaymentMethod(method.id)}
                   className={`
-                                        flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all duration-200 aspect-[4/3]
-                                        ${
-                                          paymentMethod === method.id
-                                            ? `${method.border} ${
-                                                method.bg
-                                              } ring-1 ${method.color.replace(
-                                                "text",
-                                                "ring"
-                                              )}`
-                                            : "border-gray-100 hover:border-gray-200 hover:shadow-sm bg-white"
-                                        }
-                                    `}
+                                            flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all duration-200 aspect-[4/3]
+                                            ${
+                                              paymentMethod === method.id
+                                                ? `${method.border} ${
+                                                    method.bg
+                                                  } ring-1 ${method.color.replace(
+                                                    "text",
+                                                    "ring"
+                                                  )}`
+                                                : "border-gray-100 hover:border-gray-200 hover:shadow-sm bg-white"
+                                            }
+                                        `}
                 >
                   <div className="mb-2">{method.icon}</div>
                   <span

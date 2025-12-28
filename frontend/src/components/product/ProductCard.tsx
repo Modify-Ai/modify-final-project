@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Heart, ShoppingBag } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import client from "../../api/client";
@@ -22,27 +22,29 @@ export default function ProductCard({ product }: ProductCardProps) {
   const [isWished, setIsWished] = useState(false);
 
   // =================================================================
-  // 🕵️‍♀️ [DEBUG] 이미지 주소 정규화 및 로그 출력
+  // ✅ [FIX] S3 경로 자동 보정 ("static/" 강제 주입)
   // =================================================================
   const getImageUrl = (url: string) => {
-    if (!url) {
-      // DB에 이미지 주소가 아예 없는 경우
-      return "/placeholder.png";
+    // 1. URL이 없으면 플레이스홀더
+    if (!url) return "/placeholder.png";
+
+    // 2. 이미 http로 시작하는 완벽한 주소면 그대로 사용
+    if (url.startsWith("http")) return url;
+
+    // 3. S3 버킷 주소 (서울 리전)
+    const S3_BUCKET_URL = "https://modify-frontend-final-ai4.s3.ap-northeast-2.amazonaws.com";
+
+    // 4. 앞쪽 슬래시(/) 제거 (경로 정규화)
+    let cleanPath = url.startsWith("/") ? url.slice(1) : url;
+
+    // 5. [핵심] 만약 경로가 'static/'으로 시작하지 않는다면 강제로 붙여준다.
+    // 이유: 아까 S3에 'static' 폴더를 통째로 올렸기 때문에, 파일은 무조건 static 폴더 안에 있습니다.
+    if (!cleanPath.startsWith("static/")) {
+       cleanPath = `static/${cleanPath}`;
     }
 
-    // 1. 이미 완전한 URL인 경우 (http로 시작) -> 그대로 사용
-    if (url.startsWith("http")) {
-      return url;
-    }
-
-    // 2. 상대 경로인 경우 (/static으로 시작) -> 백엔드 주소(localhost:8000) 붙이기
-    // TODO: 배포 환경에서는 이 부분을 환경변수(import.meta.env.VITE_API_URL)로 교체해야 합니다.
-    const BACKEND_URL = "http://localhost:8000";
-
-    const cleanUrl = url.startsWith("/") ? url : `/${url}`;
-    const fullUrl = `${BACKEND_URL}${cleanUrl}`;
-
-    return fullUrl;
+    // 최종 주소: 버킷주소 + / + static/images/파일명.jpg
+    return `${S3_BUCKET_URL}/${cleanPath}`;
   };
 
   const displayImage = getImageUrl(product.image_url);
@@ -94,41 +96,27 @@ export default function ProductCard({ product }: ProductCardProps) {
       className="group relative flex flex-col gap-3 cursor-pointer"
       onClick={() => navigate(`/products/${product.id}`)}
     >
-      {/* 🎨 [Image Wrapper] 둥근 모서리, 부드러운 그림자, 호버 시 떠오름 */}
+      {/* 🎨 [Image Wrapper] */}
       <div className="relative aspect-[3/4] w-full overflow-hidden rounded-[1.5rem] bg-gray-100 dark:bg-gray-800 shadow-[0_2px_10px_rgba(0,0,0,0.03)] transition-all duration-500 ease-out group-hover:shadow-[0_20px_40px_-15px_rgba(0,0,0,0.12)] group-hover:-translate-y-1">
-        {/* 이미지: 시네마틱 줌 효과 */}
+        {/* 이미지 */}
         <img
           src={displayImage}
           alt={product.name}
           className="h-full w-full object-cover object-center transition-transform duration-700 ease-out group-hover:scale-105"
-          // 🕵️‍♀️ [DEBUG] 에러 발생 시 상세 로그 출력
           onError={(e) => {
             const imgElement = e.currentTarget;
-
-            // 무한 루프 방지: 이미 placeholder인데 또 에러나면 중단
-            if (imgElement.src.includes("placeholder.png")) {
-              console.error(
-                `[ProductCard] ${product.name}: placeholder 이미지조차 로드 실패! (경로 확인 필요: /placeholder.png)`
-              );
-              return;
+            // 무한 루프 방지: 플레이스홀더도 없으면 멈춤
+            if (!imgElement.src.includes("placeholder.png")) {
+               console.error(`이미지 로드 실패: ${displayImage}`); // 디버깅용 로그
+               imgElement.src = "/placeholder.png";
             }
-
-            console.error(`[ProductCard] 이미지 로드 실패!`, {
-              상품명: product.name,
-              시도한URL: imgElement.src,
-              DB원본URL: product.image_url,
-              조치: "placeholder 이미지로 교체합니다.",
-            });
-
-            // placeholder 이미지로 교체
-            imgElement.src = "/placeholder.png";
           }}
         />
 
-        {/* Overlay Gradient (Hover 시 텍스트 가독성 및 분위기 연출) */}
+        {/* Overlay Gradient */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
 
-        {/* 💖 [Rollback] 하트 버튼: 이미지 오른쪽 상단에 위치 (Glassmorphism) */}
+        {/* 💖 하트 버튼 */}
         <button
           onClick={handleToggleWishlist}
           className="absolute top-3 right-3 p-2.5 bg-white/70 dark:bg-black/40 backdrop-blur-md rounded-full text-gray-400 hover:bg-white hover:text-red-500 transition-all duration-300 shadow-sm opacity-0 translate-y-[-10px] group-hover:opacity-100 group-hover:translate-y-0"
@@ -138,7 +126,7 @@ export default function ProductCard({ product }: ProductCardProps) {
           />
         </button>
 
-        {/* 🛒 [Rollback] 장바구니 버튼: 이미지 오른쪽 하단에 위치 (Hover시 등장) */}
+        {/* 🛒 장바구니 버튼 */}
         <div className="absolute bottom-3 right-3 opacity-0 translate-y-4 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 delay-75">
           <button
             onClick={(e) => {
@@ -153,7 +141,7 @@ export default function ProductCard({ product }: ProductCardProps) {
         </div>
       </div>
 
-      {/* 🎨 [Product Info] 깔끔하고 모던한 타이포그래피 */}
+      {/* 🎨 [Product Info] */}
       <div className="px-1 space-y-1.5">
         {/* 카테고리 태그 */}
         <div className="flex items-center">

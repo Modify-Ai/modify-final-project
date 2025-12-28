@@ -63,7 +63,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.PROJECT_NAME,
     lifespan=lifespan,
-    docs_url="/docs" if settings.ENVIRONMENT == "dev" else None,
+   docs_url="/docs",  # ✅ 무조건 문서 열기
     openapi_url="/openapi.json"
 )
 

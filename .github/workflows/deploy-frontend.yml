@@ -1,0 +1,49 @@
+name: Deploy Frontend (S3)
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'frontend/**' 
+
+env:
+  AWS_REGION: ap-northeast-2
+  S3_BUCKET: modify-frontend-final-ai4  
+jobs:
+  deploy:
+    name: Deploy Frontend
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
+    - name: Install Dependencies
+      run: |
+        cd frontend
+        npm install
+
+    - name: Build React App
+      env:
+        # 아까 등록한 백엔드 주소를 여기서 주입합니다
+        VITE_API_URL: ${{ secrets.VITE_API_URL }}
+      run: |
+        cd frontend
+        npm run build
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Deploy to S3
+      run: |
+        # dist 폴더의 내용을 S3로 동기화 (기존 파일 삭제 후 덮어쓰기)
+        aws s3 sync ./frontend/dist s3://${{ env.S3_BUCKET }} --delete

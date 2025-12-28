@@ -1,0 +1,49 @@
+name: Deploy Backend (ECS)
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'backend-core/**' 
+
+env:
+  AWS_REGION: ap-northeast-2
+  ECR_REPOSITORY: modify-backend
+  ECS_CLUSTER: modify-cluster
+  ECS_SERVICE: modify-backend-service
+
+jobs:
+  deploy:
+    name: Deploy Backend
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+
+    - name: Build, tag, and push image to Amazon ECR
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: latest
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./backend-core
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+    - name: Force deployment to ECS
+      run: |
+        aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} \
+                               --service ${{ env.ECS_SERVICE }} \
+                               --force-new-deployment \
+                               --region ${{ env.AWS_REGION }}

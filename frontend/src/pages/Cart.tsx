@@ -15,7 +15,8 @@ interface CartItem {
   id: number;
   name: string;
   price: number;
-  image_url: string;
+  image_url?: string; // 옵셔널로 변경
+  image?: string;     // image 속성 추가 (호환성)
   quantity: number;
 }
 
@@ -79,6 +80,17 @@ export default function Cart() {
       return;
     }
     navigate("/checkout");
+  };
+
+  // [Helper] 이미지 URL 추출 함수 (Checkout과 동일 로직)
+  const getImageUrl = (item: CartItem) => {
+    const rawUrl = item.image_url || item.image || "";
+    
+    if (!rawUrl) return "/placeholder.png";
+    
+    if (rawUrl.startsWith("http")) return rawUrl;
+    
+    return `https://modify-frontend-final-ai4.s3.ap-northeast-2.amazonaws.com${rawUrl.startsWith("/") ? "" : "/"}${rawUrl}`;
   };
 
   // 총 금액 계산
@@ -156,8 +168,9 @@ export default function Cart() {
                 {/* 이미지 */}
                 <Link to={`/products/${item.id}`} className="shrink-0">
                   <div className="w-24 h-24 sm:w-32 sm:h-32 bg-gray-100 rounded-xl overflow-hidden">
+                    {/* ✅ [수정완료] 개선된 이미지 로더 적용 */}
                     <img
-                      src={item.image_url || "/placeholder.png"}
+                      src={getImageUrl(item)}
                       alt={item.name}
                       className="w-full h-full object-cover hover:scale-105 transition-transform"
                       onError={(e) =>

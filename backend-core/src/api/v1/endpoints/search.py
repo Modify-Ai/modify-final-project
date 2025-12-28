@@ -84,21 +84,25 @@ def is_celebrity_search(query: str) -> bool:
     
     return False
 
+# ✅ [FIX] S3 URL 등 외부 이미지 다운로드 강화
 async def fetch_image_as_base64(url: str) -> Optional[str]:
-    """외부 이미지 프록시 다운로드"""
+    """외부 이미지(S3 포함) 프록시 다운로드 -> Base64 변환"""
     if not url:
         return None
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            # S3 접근 시 Referer가 필요 없는 경우가 많지만 안전하게 Google로 설정
             "Referer": "https://www.google.com/"
         }
-        async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
+        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
             response = await client.get(url, headers=headers)
             if response.status_code == 200:
                 b64_data = base64.b64encode(response.content).decode('utf-8')
                 content_type = response.headers.get("content-type", "image/jpeg")
                 return f"data:{content_type};base64,{b64_data}"
+            else:
+                logger.warning(f"⚠️ Image Download Failed ({response.status_code}): {url}")
     except Exception as e:
         logger.warning(f"⚠️ Failed to proxy image ({url}): {e}")
     return None
@@ -195,12 +199,9 @@ async def search_by_clip_image(
     elif request.target == "lower":
         target_categories = [ProductCategory.BOTTOMS.value] 
     
-    # ✅ [FIX] URL 보정 로직 추가
-    raw_url = settings.AI_SERVICE_API_URL.rstrip("/")
-    if "/api/v1" not in raw_url:
-        AI_SERVICE_API_URL = f"{raw_url}/api/v1"
-    else:
-        AI_SERVICE_API_URL = raw_url
+    # ✅ [FIX] URL 보정 로직 (SAFE_AI_URL 사용)
+    # settings.py가 환경변수를 잘못 읽더라도, 코드는 무조건 127.0.0.1을 바라봅니다.
+    AI_SERVICE_API_URL = "http://127.0.0.1:8001/api/v1"
     
     try:
         # 2. AI 서비스에서 CLIP 벡터 생성
@@ -267,12 +268,7 @@ async def search_by_clip_image(
 async def analyze_image_proxy(request: ImageAnalysisRequest):
     """개별 이미지 분석 프록시 (후보 이미지 상세 분석)"""
     
-    # ✅ [FIX] URL 보정 로직 추가
-    raw_url = settings.AI_SERVICE_API_URL.rstrip("/")
-    if "/api/v1" not in raw_url:
-        AI_SERVICE_API_URL = f"{raw_url}/api/v1"
-    else:
-        AI_SERVICE_API_URL = raw_url
+    AI_SERVICE_API_URL = "http://127.0.0.1:8001/api/v1"
 
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -313,7 +309,7 @@ async def ai_search(
     
     logger.info(f"📌 Gender: {target_gender}, Core Keyword: '{core_keyword}', Celebrity: {is_celeb_search}")
 
-    # 2. 업로드 이미지 처리
+    # 2. 업로드 이미지 처리 (Base64 변환)
     image_b64: Optional[str] = None
     if image_file:
         try:
@@ -323,12 +319,7 @@ async def ai_search(
             raise HTTPException(status_code=400, detail="Invalid image file")
 
     # 3. AI Service 호출 (경로 판단 및 벡터 생성)
-    # ✅ [FIX] URL 보정 로직 (핵심 수정 사항)
-    raw_url = settings.AI_SERVICE_API_URL.rstrip("/")
-    if "/api/v1" not in raw_url:
-        AI_SERVICE_API_URL = f"{raw_url}/api/v1"
-    else:
-        AI_SERVICE_API_URL = raw_url
+    AI_SERVICE_API_URL = "http://127.0.0.1:8001/api/v1"
     
     search_strategy = "SMART_HYBRID"
     search_path = "INTERNAL"
@@ -344,7 +335,6 @@ async def ai_search(
         try:
             async with httpx.AsyncClient(timeout=120.0) as client:
                 # 3-1. 경로 결정 API 호출
-                # 이제 AI_SERVICE_API_URL 뒤에 /api/v1이 붙어있으므로 정상 작동함
                 path_res = await client.post(
                     f"{AI_SERVICE_API_URL}/determine-path",
                     json={"query": query}
@@ -387,9 +377,9 @@ async def ai_search(
                 
                 search_strategy = data.get("strategy", search_path).upper()
                 
-                # 외부 이미지 URL이면 프록시 처리
+                # ✅ [FIX] S3/외부 이미지 URL이면 Base64로 미리 변환
                 if ref_image_url and ref_image_url.startswith("http"):
-                    logger.info(f"🔄 Proxying reference image...")
+                    logger.info(f"🔄 Proxying reference image: {ref_image_url}")
                     proxy_image = await fetch_image_as_base64(ref_image_url)
                     if proxy_image:
                         ref_image_url = proxy_image
