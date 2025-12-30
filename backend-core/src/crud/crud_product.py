@@ -220,10 +220,12 @@ class CRUDProduct:
         clip_vector: List[float], 
         limit: int = 12,
         filter_gender: Optional[str] = None,
+        include_category: Optional[List[str]] = None,
         exclude_category: Optional[List[str]] = None,
         exclude_id: Optional[List[int]] = None,
         min_price: Optional[int] = None,
-        max_price: Optional[int] = None
+        max_price: Optional[int] = None,
+        target: str = "full"
     ) -> List[Product]:
         """
         ✅ CLIP 이미지 벡터(512차원)로 시각적 유사도 검색
@@ -237,10 +239,23 @@ class CRUDProduct:
             logger.warning("❌ Invalid CLIP vector (expected 512 dims)")
             return []
         
+        # 🎯 [핵심] target에 따라 비교할 DB 컬럼 선택
+        # 기본값은 전체(embedding_clip)
+        target_column = Product.embedding_clip
+        
+        if target == "upper":
+            target_column = Product.embedding_clip_upper
+            logger.info("👕 Searching with UPPER body vector")
+        elif target == "lower":
+            target_column = Product.embedding_clip_lower
+            logger.info("👖 Searching with LOWER body vector")
+        else:
+            logger.info("👗 Searching with FULL body vector")
+
         conditions = [
             Product.is_active == True,
             Product.deleted_at.is_(None),
-            Product.embedding_clip.is_not(None)
+            target_column.is_not(None)
         ]
         
         # 성별 필터
@@ -253,6 +268,10 @@ class CRUDProduct:
                 )
             )
         
+        # 👇 [추가 2] 카테고리 포함 로직 구현 (SQLAlchemy IN 연산)
+        if include_category:
+            conditions.append(Product.category.in_(include_category))
+
         # 카테고리 제외
         if exclude_category:
             for cat in exclude_category:
@@ -269,7 +288,7 @@ class CRUDProduct:
             conditions.append(Product.price <= max_price)
         
         # ✅ 코사인 거리 계산 (거리가 작을수록 유사)
-        dist = Product.embedding_clip.cosine_distance(clip_vector)
+        dist = target_column.cosine_distance(clip_vector)
         
         # ✅ SELECT에 거리 포함하여 로깅용
         stmt = select(Product, dist.label('distance')).where(*conditions)

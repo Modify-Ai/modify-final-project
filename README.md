@@ -262,6 +262,15 @@ CREATE TABLE fitting_results (
 );
 CREATE INDEX ix_fitting_results_id ON fitting_results (id);
 
+-- product 테이블 NULL값 채우기 (RAG 추천 상품 기능에 필요) 
+UPDATE products
+SET 
+    embedding_clip_upper = embedding_clip,
+    embedding_clip_lower = embedding_clip
+WHERE 
+    embedding_clip IS NOT NULL 
+    AND (embedding_clip_upper IS NULL OR embedding_clip_lower IS NULL);
+
 -- 9. 변경사항 확정
 COMMIT;
 ```
