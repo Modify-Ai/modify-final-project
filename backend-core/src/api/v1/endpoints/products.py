@@ -4,10 +4,12 @@ import io
 import shutil
 import os
 import uuid
+from pathlib import Path
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, delete
 import httpx
 
 # 의존성 및 모듈 임포트
@@ -17,7 +19,8 @@ from src.config.settings import settings
 from src.schemas.user import UserResponse as User
 from src.schemas.product import (
     ProductResponse, 
-    ProductCreate, 
+    ProductCreate,
+    ProductBulkDelete, 
     CoordinationResponse, 
     LLMQueryBody
 )
@@ -153,7 +156,24 @@ async def upload_product_image_auto(
     raw_desc = ai_analyzed_data.get("description")
     final_desc = str(raw_desc).strip() if raw_desc else "AI 분석 중... 상세 내용을 수정해주세요."
 
-    final_gender = ai_analyzed_data.get("gender", "Unisex")
+    # 1. AI가 준 성별 가져오기 (예: '여성', '남성', '남여공용')
+    raw_gender = ai_analyzed_data.get("gender", "Unisex")
+
+    # 2. 매핑 딕셔너리 정의 (한글 -> DB 허용값)
+    gender_map = {
+        "남성": "Male",
+        "여성": "Female",
+        "여자": "Female",
+        "남자": "Male",
+        "남여공용": "Unisex",
+        "공용": "Unisex",
+        "Unisex": "Unisex", # 이미 영어인 경우 대비
+        "Male": "Male",
+        "Female": "Female"
+    }
+
+    # 3. 변환 (없으면 기본값 Unisex)
+    mapped_gender = gender_map.get(raw_gender, "Unisex")
 
     try:
         final_price = int(ai_analyzed_data.get("price", 0))
@@ -182,7 +202,7 @@ async def upload_product_image_auto(
         "image_url": final_image_url,
         "embedding": vector,              # BERT
         "embedding_clip": vector_clip,    # CLIP
-        "gender": final_gender,
+        "gender": mapped_gender,
         "is_active": True
     }
 
@@ -448,6 +468,77 @@ async def delete_product_admin(
     await db.commit()
 
     return {"message": "상품이 삭제되었습니다.", "product_id": product_id}
+
+@router.post("/bulk-delete", status_code=200)
+async def bulk_delete_products(
+    *,
+    db: AsyncSession = Depends(deps.get_db),
+    product_in: ProductBulkDelete,
+    current_user = Depends(deps.get_current_user), # 관리자만 가능하게 설정 (선택사항)
+) -> Any:
+    """
+    상품 일괄 삭제 (DB 데이터 + 이미지 파일)
+    """
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다.")
+    
+    # 1. 삭제할 상품들 조회 (이미지 경로를 얻기 위함)
+    stmt = select(Product).where(Product.id.in_(product_in.product_ids))
+    result = await db.execute(stmt)
+    products = result.scalars().all()
+
+    if not products:
+        return {
+            "deleted_count": 0,
+            "image_deleted_count": 0,
+            "errors": ["삭제할 상품을 찾을 수 없습니다."]
+        }
+
+    deleted_count = 0
+    image_deleted_count = 0
+    errors = []
+
+    # 2. 이미지 파일 삭제 로직
+    # 컨테이너 내부의 static 경로 기준 (보통 /app/src/static)
+    BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent # /app
+    
+    for product in products:
+        if product.image_url:
+            try:
+                # DB의 URL: /static/images/uuid.jpg
+                # 실제 파일 경로: /app/src/static/images/uuid.jpg
+                
+                # URL에서 '/static/' 제거하고 실제 경로와 결합
+                relative_path = product.image_url.lstrip("/") # static/images/...
+                if relative_path.startswith("static/"):
+                     # src/static/... 으로 변환
+                    file_path = BASE_DIR / "src" / relative_path
+                else:
+                    # 예외적인 경로일 경우
+                    file_path = BASE_DIR / "src/static" / os.path.basename(product.image_url)
+
+                if file_path.exists():
+                    os.remove(file_path)
+                    image_deleted_count += 1
+            except Exception as e:
+                errors.append(f"이미지 삭제 실패 (ID {product.id}): {str(e)}")
+
+    # 3. DB 데이터 일괄 삭제
+    try:
+        delete_stmt = delete(Product).where(Product.id.in_(product_in.product_ids))
+        await db.execute(delete_stmt)
+        await db.commit()
+        deleted_count = len(products)
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"DB 삭제 중 오류 발생: {str(e)}")
+
+    return {
+        "deleted_count": deleted_count,
+        "image_deleted_count": image_deleted_count,
+        "errors": errors
+    }
+
 
 # =========================================================
 # 일반 상품 조회 및 AI 기능

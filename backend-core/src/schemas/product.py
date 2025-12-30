@@ -37,6 +37,9 @@ class ProductResponse(ProductBase):
 
     model_config = ConfigDict(from_attributes=True)
 
+class ProductBulkDelete(BaseModel):
+    product_ids: List[int]
+
 # --- 검색 관련 스키마 ---
 class SearchQuery(BaseModel):
     query: str = Field(..., min_length=1, description="검색어")
