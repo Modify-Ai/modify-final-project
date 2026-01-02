@@ -434,6 +434,10 @@ async def process_external(request: InternalSearchRequest):
 
 app.include_router(api_router)
 
+# Benchmark API
+from src.api.benchmark import router as benchmark_router
+app.include_router(benchmark_router, prefix="/api/v1")
+
 @app.get("/")
 def read_root():
     return {"message": "Modify AI Service is Running"}

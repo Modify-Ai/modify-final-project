@@ -34,4 +34,17 @@ model_cache/
 Coverage
 
 .coverage
+<<<<<<< Updated upstream
 htmlcov/
+=======
+htmlcov/
+
+# Uploaded Images
+backend-core/src/static/images/
+ai-service/static/
+
+# Performance Test Results (keep only results folder)
+performance_tests/*.png
+performance_tests/*.json
+!performance_tests/results/
+>>>>>>> Stashed changes

@@ -1,0 +1,15 @@
+{
+  "ai_models": {},
+  "api_endpoints": {},
+  "database_queries": {},
+  "throughput": {},
+  "cosine_similarity": {
+    "similar_avg": 0.6552086591520204,
+    "similar_min": 0.4722171023817853,
+    "similar_max": 0.9112461985025461,
+    "dissimilar_avg": 0.5341288905571971,
+    "dissimilar_min": 0.31757736275407994,
+    "dissimilar_max": 0.7812607301191397,
+    "separation": 0.12107976859482328
+  }
+}

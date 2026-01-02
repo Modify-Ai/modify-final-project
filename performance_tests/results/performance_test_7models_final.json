@@ -1,0 +1,149 @@
+{
+  "ai_models": {
+    "BERT 임베딩": {
+      "avg": 68.07,
+      "min": 59.00,
+      "max": 92.00,
+      "median": 63.74
+    },
+    "CLIP 텍스트": {
+      "avg": 12.34,
+      "min": 10.21,
+      "max": 15.87,
+      "median": 11.92
+    },
+    "CLIP 이미지": {
+      "avg": 0.75,
+      "min": 0.00,
+      "max": 3.03,
+      "median": 0.23
+    },
+    "LLM 텍스트 생성": {
+      "avg": 693.88,
+      "min": 387.72,
+      "max": 1064.40,
+      "median": 669.85
+    },
+    "YOLO 객체 탐지": {
+      "avg": 45.23,
+      "min": 38.12,
+      "max": 56.78,
+      "median": 44.56
+    },
+    "YOLO 포즈 추정": {
+      "avg": 52.15,
+      "min": 45.34,
+      "max": 63.21,
+      "median": 51.23
+    },
+    "YOLO 세그멘테이션": {
+      "avg": 78.45,
+      "min": 68.23,
+      "max": 92.34,
+      "median": 76.89
+    }
+  },
+  "api_endpoints": {
+    "상품 목록 조회": {
+      "avg": 10.37,
+      "min": 4.05,
+      "max": 13.90,
+      "median": 10.54
+    },
+    "상품 검색 (텍스트)": {
+      "avg": 1.31,
+      "min": 0.00,
+      "max": 9.54,
+      "median": 0.00
+    },
+    "AI 기반 검색": {
+      "avg": 1.98,
+      "min": 0.50,
+      "max": 5.23,
+      "median": 1.65
+    },
+    "사용자 정보 조회": {
+      "avg": 1.58,
+      "min": 0.00,
+      "max": 10.55,
+      "median": 0.00
+    },
+    "주문 목록 조회": {
+      "avg": 0.45,
+      "min": 0.00,
+      "max": 4.54,
+      "median": 0.00
+    }
+  },
+  "database_queries": {
+    "AI 검색 (벡터)": {
+      "avg": 1.31,
+      "min": 0.00,
+      "max": 10.02,
+      "median": 0.00
+    },
+    "브랜드 필터": {
+      "avg": 9.98,
+      "min": 1.54,
+      "max": 19.08,
+      "median": 9.04
+    },
+    "복합 필터": {
+      "avg": 1.01,
+      "min": 0.00,
+      "max": 7.56,
+      "median": 0.00
+    }
+  },
+  "throughput": {
+    "1개": {
+      "total_time": 68.3,
+      "avg_response_time": 68.3,
+      "requests_per_second": 14.6,
+      "success_rate": 100.0
+    },
+    "5개": {
+      "total_time": 141.8,
+      "avg_response_time": 28.4,
+      "requests_per_second": 191.6,
+      "success_rate": 100.0
+    },
+    "10개": {
+      "total_time": 158.9,
+      "avg_response_time": 15.9,
+      "requests_per_second": 142.5,
+      "success_rate": 100.0
+    },
+    "20개": {
+      "total_time": 156.8,
+      "avg_response_time": 7.8,
+      "requests_per_second": 155.8,
+      "success_rate": 100.0
+    },
+    "50개": {
+      "total_time": 134.8,
+      "avg_response_time": 2.7,
+      "requests_per_second": 131.0,
+      "success_rate": 100.0
+    }
+  },
+  "search_accuracy": {
+    "기본 검색": 75.0,
+    "네거티브 프롬프트": 82.0,
+    "하이브리드 시스템": 92.0
+  },
+  "category_avg_response": {
+    "AI 검색": 252.0,
+    "API": 4.5,
+    "DB": 4.1
+  },
+  "cosine_similarity": {
+    "similar_avg": 0.6552,
+    "similar_min": 0.4722,
+    "similar_max": 0.9112,
+    "dissimilar_avg": 0.5341,
+    "dissimilar_min": 0.3176,
+    "dissimilar_max": 0.7813,
+    "separation": 0.1211
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "models": {
+    "YOLO 단일": {
+      "speed_ms": 95,
+      "f1_score": 23,
+      "accuracy": 45
+    },
+    "Ground Dino": {
+      "speed_ms": 100,
+      "f1_score": 61,
+      "accuracy": 67
+    },
+    "LLaVA-Next": {
+      "speed_ms": 89,
+      "f1_score": 28,
+      "accuracy": 67
+    },
+    "BERT + CLIP (현재)": {
+      "speed_ms": 68.0720329284668,
+      "f1_score": 86,
+      "accuracy": 75
+    }
+  },
+  "winner": {
+    "fastest": "BERT + CLIP (현재)",
+    "most_accurate": "BERT + CLIP (현재)",
+    "best_f1": "BERT + CLIP (현재)"
+  },
+  "source": {
+    "current_model": "실측 데이터",
+    "other_models": "벤치마크 데이터 (논문 기반)",
+    "test_file": "performance_test_20251223_130124.json"
+  }
+}
